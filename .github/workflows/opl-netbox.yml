@@ -1,7 +1,7 @@
 # [NETBOX] 云端编译 OPL + netbox 驱动
 #
 # 为什么要有这个 workflow：
-#   netbox.patch 只是一个“补丁文件”，光把它上传到仓库不会改动任何代码。
+#   netbox.patch 只是一个"补丁文件"，光把它上传到仓库不会改动任何代码。
 #   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
 #   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
 #
@@ -25,6 +25,11 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch --prune --unshallow || true
 
+      - name: 补丁指纹（确认编的是哪一版补丁）
+        run: |
+          sha256sum netbox.patch
+          grep -c '^diff --git' netbox.patch
+
       - name: Apply netbox patch
         run: |
           git apply --verbose --exclude='.github/workflows/*' netbox.patch
@@ -32,9 +37,50 @@ jobs:
       - name: Compile -> make clean release
         run: make --trace clean release
 
-      - name: Upload ELF
+      # 关键：发布版 ELF 是 ps2-packer 压缩过的，字符串全没了，
+      # 没法用它判断"驱动到底有没有编进去"。所以这里另外收集证据：
+      # 未压缩的 opl.elf、链接 map、以及 bin2c 产物。
+      - name: Collect verification info
+        if: ${{ always() }}
+        run: |
+          {
+            echo "=== netbox.patch sha256（对着我给的哈希核对版本）==="
+            sha256sum netbox.patch
+            echo
+            echo "=== modules/netbox IRX 产物 ==="
+            ls -la modules/netbox/*.irx 2>&1
+            echo
+            echo "=== bin2c 产物 asm/netbox.c ==="
+            ls -la asm/netbox.c 2>&1
+            echo
+            echo "=== 目标文件 obj/netbox.o ==="
+            ls -la obj/netbox.o 2>&1
+            echo
+            echo "=== opl.map 里的 netbox 符号（证明链进了 ELF）==="
+            grep -i netbox opl.map 2>&1 | head -30
+            echo
+            echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
+            strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
+            echo
+            echo "=== 产物清单 ==="
+            ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
+          } > verify.txt 2>&1
+          cat verify.txt
+
+      - name: Upload ELF（PS2 用这个）
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: OPNPS2LD-netbox
           path: OPNPS2LD-*.ELF
+
+      - name: Upload build evidence（排查用，别拷进 PS2）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: netbox-build-verify
+          if-no-files-found: warn
+          path: |
+            verify.txt
+            opl.elf
+            opl.map
