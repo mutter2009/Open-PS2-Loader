@@ -1,12 +1,11 @@
 name: CI-compile
 
+# [NETBOX 修改] 只保留手动触发。
+# 上游原本 push / pull_request 全触发：往仓库里上传任何文件（含 netbox.patch）都会自动跑一次完整编译，
+# 而且 release job 在 master 分支上还会自动创建 GitHub Release。
+# 现已改为仅在 Actions 页面手动点 Run workflow。
 on:
-  push:
-  pull_request:
   workflow_dispatch:
-  repository_dispatch:
-    types: [run_build]
-
 jobs:
   build:
     runs-on: ubuntu-latest
