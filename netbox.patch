@@ -146,6 +146,30 @@ index 0b6df1f..afc3acd 100644
  
  typedef struct
  {
+diff --git a/include/config.h b/include/config.h
+index 3cf4be7..254b33a 100644
+--- a/include/config.h
++++ b/include/config.h
+@@ -100,6 +100,7 @@ enum CONFIG_INDEX {
+ #define CONFIG_OPL_ENABLE_ILINK         "enable_ilink"
+ #define CONFIG_OPL_ENABLE_MX4SIO        "enable_mx4sio"
+ #define CONFIG_OPL_ENABLE_BDMHDD        "enable_bdm_hdd"
++#define CONFIG_OPL_ENABLE_NETBOX        "enable_netbox" // [NETBOX]
+ #define CONFIG_OPL_SWAP_SEL_BUTTON      "swap_select_btn"
+ #define CONFIG_OPL_PARENTAL_LOCK_PWD    "parental_lock_password"
+ #define CONFIG_OPL_SFX                  "enable_sfx"
+diff --git a/include/dialogs.h b/include/dialogs.h
+index f26aed9..ce10447 100644
+--- a/include/dialogs.h
++++ b/include/dialogs.h
+@@ -40,6 +40,7 @@ enum UI_ITEMS {
+     CFG_ENABLEILK,
+     CFG_ENABLEMX4SIO,
+     CFG_ENABLEBDMHDD,
++    CFG_ENABLENETBOX, // [NETBOX] NetBox 网络硬盘开关
+     CFG_LASTPLAYED,
+     CFG_LBL_AUTOSTARTLAST,
+     CFG_AUTOSTARTLAST,
 diff --git a/include/extern_irx.h b/include/extern_irx.h
 index 4acdc9f..4d540bd 100644
 --- a/include/extern_irx.h
@@ -158,6 +182,18 @@ index 4acdc9f..4d540bd 100644
  
  IMPORT_BIN2C(smap_irx);
  
+diff --git a/include/opl.h b/include/opl.h
+index 0d56a6b..eea28d4 100644
+--- a/include/opl.h
++++ b/include/opl.h
+@@ -126,6 +126,7 @@ extern int smbCacheSize;
+ extern int gEnableILK;
+ extern int gEnableMX4SIO;
+ extern int gEnableBdmHDD;
++extern int gEnableNetBox; // [NETBOX] BDM 块设备里的 NetBox 网络硬盘开关（设置项 enable_netbox）
+ 
+ extern int gAutosort;
+ extern int gAutoRefresh;
 diff --git a/modules/netbox/Makefile b/modules/netbox/Makefile
 new file mode 100644
 index 0000000..6073eca
@@ -271,10 +307,10 @@ index 0000000..e3d7b66
 +#endif
 diff --git a/modules/netbox/netbox.h b/modules/netbox/netbox.h
 new file mode 100644
-index 0000000..3cb3904
+index 0000000..e2b96dc
 --- /dev/null
 +++ b/modules/netbox/netbox.h
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,119 @@
 +/*
 + * netbox.h - PS2 NetBox 私有协议 (厂商内部名 NBD) 的字节级定义
 + *
@@ -299,6 +335,14 @@ index 0000000..3cb3904
 +#define NB_PORT        40000 /* 盒子监听端口，PS2 也从 30000 发往 40000 */
 +#define NB_LOCAL_PORT  40000 /* 本机绑定端口（收盒子的广播应答） */
 +#define NB_SRC_PORT    30000 /* PS2 源端口（盒子据此识别客户端） */
++
++/*
++ * 诊断通道：驱动把进度以纯文本广播到 UDP 40001。
++ * release 版 OPL 里 IOP 的 printf 看不见（没有 ps2link），
++ * 所以这是唯一能确认"驱动到底走到哪一步"的手段：
++ * PC 与 PS2 同网段抓包即可看到，不干扰协议端口 40000。
++ */
++#define NB_DIAG_PORT   40001
 +
 +/*
 + * 关键坑：盒子的应答是“畸形 IP 包”。
@@ -388,10 +432,10 @@ index 0000000..3cb3904
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..4a5da85
+index 0000000..78fa55c
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,677 @@
+@@ -0,0 +1,767 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -521,6 +565,23 @@ index 0000000..4a5da85
 +static int          rx_sema;
 +static int          io_sema; /* 保证同一时刻只有一个事务在飞 */
 +
++/*
++ * 诊断计数器（rx_push / 钩子里自增，诊断包里上报）。
++ * 必须定义在 rx_push 之前 —— rx_push 内部会自增 g_rx_frames。
++ * 这两个数能把失败精确定位到三种完全不同的原因：
++ *
++ *   g_hook_calls == 0  -> ps2ip 根本没调用钩子：
++ *                         收包路径不是 ps2ip_input（比如 smap 走了 netman 直连），
++ *                         或钩子没注册上。整个方案在这一步就是死的。
++ *   g_hook_calls > 0 但 g_rx_frames == 0
++ *                      -> 收到了帧，但全被 rx_push 的过滤条件挡掉：
++ *                         目的端口/ethertype/IP proto 判断与实机不符。
++ *   g_rx_frames > 0 但 IDENTIFY 失败
++ *                      -> 协议层问题：事务号或数据偏移不对。
++ */
++static volatile int g_hook_calls = 0;
++static volatile int g_rx_frames  = 0;
++
 +static void rx_push(const u8 *frame, int len)
 +{
 +    int next, state;
@@ -544,6 +605,7 @@ index 0000000..4a5da85
 +        memcpy(rx_buf[rx_head], frame, len);
 +        rx_len[rx_head] = len;
 +        rx_head         = next;
++        g_rx_frames++;
 +    }
 +    CpuResumeIntr(state);
 +
@@ -553,6 +615,7 @@ index 0000000..4a5da85
 +/* 拦截器：由 SMSTCPIP 的 ps2ip_input 调用（补丁见 ps2ip_raw_hook.diff） */
 +static void netbox_raw_hook(const void *frame, int len)
 +{
++    g_hook_calls++;
 +    rx_push((const u8 *)frame, len);
 +}
 +
@@ -654,6 +717,36 @@ index 0000000..4a5da85
 +    r = NETBOX_SENDTO(g_sock, (void *)payload, len, 0,
 +                      (struct sockaddr *)&dst, sizeof(dst));
 +    return r;
++}
++
++/*
++ * 诊断通道：一行纯文本广播到 UDP 40001。
++ *
++ * 为什么需要它：release 版 OPL 里 IOP 的 printf 没有输出目标（无 ps2link），
++ * 驱动在 IOP 里跑，成功失败全靠猜。有了这个通道，PC 只要和 PS2 同网段抓包，
++ * 就能看到驱动走到哪一步（socket / bind / 握手 / IDENTIFY / 首次读扇区），
++ * 不用改 OPL、不用串口、不用重编 debug 版。端口与协议端口 40000 分开，不干扰。
++ */
++static void nb_diag(const char *msg)
++{
++    struct nb_sockaddr_in dst;
++    char buf[192];
++    int len;
++
++    if (g_sock < 0)
++        return;
++
++    len = sprintf(buf, "[NETBOX] %s\n", msg);
++    if (len <= 0 || len >= (int)sizeof(buf))
++        return;
++
++    memset(&dst, 0, sizeof(dst));
++    dst.sin_len    = sizeof(dst);
++    dst.sin_family = AF_INET;
++    dst.sin_port   = htons_(NB_DIAG_PORT);
++    dst.sin_addr   = INADDR_BROADCAST;
++
++    NETBOX_SENDTO(g_sock, buf, len, 0, (struct sockaddr *)&dst, sizeof(dst));
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -811,7 +904,6 @@ index 0000000..4a5da85
 +static int nb_transaction(u64 lba, u16 count, u8 *buffer, u8 ata_cmd)
 +{
 +    static u8 req[1536];
-+    u8 received[NB_MAX_SECTORS];
 +    u16 txn;
 +    int len, got = 0, tries, deadline;
 +    u32 bitmap = 0;
@@ -851,7 +943,6 @@ index 0000000..4a5da85
 +                if (!(bitmap & (1u << idx))) {
 +                    memcpy(buffer + (idx * NB_DATA_SIZE), data, NB_DATA_SIZE);
 +                    bitmap |= (1u << idx);
-+                    received[idx] = 1;
 +                    got++;
 +                }
 +            }
@@ -863,7 +954,6 @@ index 0000000..4a5da85
 +    }
 +
 +    SignalSema(io_sema);
-+    (void)received;
 +    return (got >= count) ? (int)count : -3;
 +}
 +
@@ -944,17 +1034,38 @@ index 0000000..4a5da85
 +{
 +    u8 *p = (u8 *)buffer;
 +    u16 remaining = count;
++    static int nreads = 0;
++    static int nfails = 0;
 +    (void)bd;
++
++    /* 能进这里说明 OPL 已经在尝试挂载并读盘了 */
++    if (nreads == 0) {
++        char msg[80];
++        sprintf(msg, "first read lba=%d count=%d", (u32)sector, (int)count);
++        nb_diag(msg);
++    }
++    nreads++;
 +
 +    while (remaining > 0) {
 +        u16 n = (remaining > NB_MAX_SECTORS) ? NB_MAX_SECTORS : remaining;
 +        int r = nb_transaction(sector, n, p, NB_ATA_READ_EXT);
-+        if (r != (int)n)
++        if (r != (int)n) {
++            /* 只报前 3 次避免刷屏；带上计数区分"根本没收到帧"和"帧不对" */
++            if (nfails < 3) {
++                char msg[112];
++                sprintf(msg, "read FAIL lba=%d n=%d ret=%d hook=%d rx=%d",
++                        (u32)sector, (int)n, r, g_hook_calls, g_rx_frames);
++                nb_diag(msg);
++            }
++            nfails++;
 +            return -1;
++        }
 +        sector += n;
 +        p += (u32)n * NB_DATA_SIZE;
 +        remaining = (u16)(remaining - n);
 +    }
++    if (nreads == 1)
++        nb_diag("first read OK");
 +    return count;
 +}
 +
@@ -998,7 +1109,7 @@ index 0000000..4a5da85
 +{
 +    struct nb_sockaddr_in me;
 +    iop_sema_t sema;
-+    u64 sectors;
++    u64 sectors = 0; /* 必须初始化：下面的重试循环拿它当条件 */
 +    int one = 1;
 +    int try;
 +    (void)argc; (void)argv;
@@ -1031,6 +1142,7 @@ index 0000000..4a5da85
 +        printf("netbox: socket() 失败\n");
 +        return MODULE_NO_RESIDENT_END;
 +    }
++    nb_diag("socket ok");
 +
 +    NETBOX_SETSOCKOPT(g_sock, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
 +
@@ -1041,13 +1153,21 @@ index 0000000..4a5da85
 +    me.sin_addr   = 0; /* INADDR_ANY */
 +    if (NETBOX_BIND(g_sock, (struct sockaddr *)&me, sizeof(me)) < 0) {
 +        printf("netbox: bind(%d) 失败\n", NB_LOCAL_PORT);
++        nb_diag("bind FAILED -> driver not resident");
 +        NETBOX_CLOSE(g_sock);
 +        return MODULE_NO_RESIDENT_END;
 +    }
++    nb_diag("bind ok");
 +
 +    /* 3) 开机握手（激活盒子）—— 必须在任何读操作之前。
-+     * 盒子可能刚上电还没就绪，或第一条广播还没走通，所以整体重试 3 轮。 */
-+    for (try = 0; try < 3 && sectors == 0; try++) {
++     * 盒子可能刚上电还没就绪，或第一条广播还没走通，所以整体重试。
++     * sectors 已在声明处初始化为 0，这里的循环条件才是可靠的。 */
++    for (try = 0; try < 5 && sectors == 0; try++) {
++        char msg[64];
++
++        sprintf(msg, "handshake round %d", try + 1);
++        nb_diag(msg);
++
 +        nb_handshake();
 +        DelayThread(50 * 1000); /* 50ms，等盒子应答 */
 +        sectors = nb_identify_sectors();
@@ -1059,13 +1179,27 @@ index 0000000..4a5da85
 +         * 读盘大概率会失败（OPL 会因为 fileXioDopen 失败而不显示设备）。 */
 +        sectors = 1953525168ULL; /* 1TB */
 +        printf("netbox: 盒子无应答，使用兜底容量 %d 个扇区\n", (u32)(sectors & 0xFFFFFFFF));
++        nb_diag("IDENTIFY failed -> fallback 1TB (reads will likely fail)");
++    } else {
++        char msg[80];
++        sprintf(msg, "IDENTIFY ok: %d sectors (%d MB)",
++                (u32)(sectors & 0xFFFFFFFF), (u32)((sectors >> 11) / 1024));
++        nb_diag(msg);
 +    }
 +    g_netbox_bd.sectorCount = sectors;
++
++    /* 关键诊断：把 hook / 收帧计数报出来（定位见上面计数器的注释） */
++    {
++        char msg[96];
++        sprintf(msg, "hook_calls=%d rx_frames=%d", g_hook_calls, g_rx_frames);
++        nb_diag(msg);
++    }
 +
 +    printf("netbox: 容量 %d 个扇区 (%d MB)\n",
 +           (u32)(sectors & 0xFFFFFFFF), (u32)((sectors >> 11) / 1024));
 +
 +    bdm_connect_bd(&g_netbox_bd);
++    nb_diag("bdm_connect_bd() done -> resident");
 +
 +    return MODULE_RESIDENT_END;
 +}
@@ -1188,7 +1322,7 @@ index f00bdd9..98a3232 100644
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..74a0baa 100644
+index b181dec..9729a75 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
 @@ -11,6 +11,7 @@
@@ -1199,19 +1333,20 @@ index b181dec..74a0baa 100644
  #include "modules/iopcore/common/cdvd_config.h"
  
  #include <usbhdfsd-common.h>
-@@ -23,6 +24,11 @@
+@@ -23,6 +24,12 @@
  static int iLinkModLoaded = 0;
  static int mx4sioModLoaded = 0;
  static int hddModLoaded = 0;
 +static int netboxModLoaded = 0;
-+int gEnableNetBox = 1;  // [NETBOX] TODO: 接入 OPL 设置菜单
++// [NETBOX] gEnableNetBox 已接入 OPL 设置菜单（设置项 enable_netbox）：定义见 src/opl.c，声明见 include/opl.h，
++//          默认值在 setDefaultConfig() 中设为 1。这里不再本地定义，避免重复定义。
 +// [NETBOX] 驱动是否已驻留。ethsupport.c 用它决定"能不能拆网络栈/关 DEV9" ——
 +// netbox 的读盘全靠 ps2ip+smap，栈一拆设备立刻变成哑设备。
 +int gNetBoxDriverLoaded = 0;
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +109,46 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +110,46 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
@@ -1258,7 +1393,7 @@ index b181dec..74a0baa 100644
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +235,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +236,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1268,7 +1403,7 @@ index b181dec..74a0baa 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +872,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +873,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -1277,6 +1412,22 @@ index b181dec..74a0baa 100644
          } else
              pDeviceData->bdmDeviceType = BDM_TYPE_UNKNOWN;
  
+diff --git a/src/dialogs.c b/src/dialogs.c
+index 6e19d1d..12244a0 100644
+--- a/src/dialogs.c
++++ b/src/dialogs.c
+@@ -160,6 +160,11 @@ struct UIItem diaBlockDevicesConfig[] = {
+     {UI_BOOL, CFG_ENABLEBDMHDD, 1, 1, _STR_HDD_HINT, 0, 0, {.intvalue = {0, 0}}},
+     {UI_BREAK},
+ 
++    {UI_LABEL, 0, 1, 1, -1, -40, 0, {.label = {"NetBox", -1}}},
++    {UI_SPACER},
++    {UI_BOOL, CFG_ENABLENETBOX, 1, 1, -1, 0, 0, {.intvalue = {0, 0}}},
++    {UI_BREAK},
++
+     // buttons
+     {UI_OK, 0, 1, 1, -1, 0, 0, {.label = {NULL, _STR_OK}}},
+     {UI_BREAK},
 diff --git a/src/ethsupport.c b/src/ethsupport.c
 index f0462fa..a1aefb0 100644
 --- a/src/ethsupport.c
@@ -1318,4 +1469,59 @@ index f0462fa..a1aefb0 100644
 +
      // UI may have initialized modules outside of ETH mode, so deinitialize regardless of the enabled status.
      ethDeinitModules();
+ 
+diff --git a/src/gui.c b/src/gui.c
+index 1054228..6ca62d8 100644
+--- a/src/gui.c
++++ b/src/gui.c
+@@ -445,12 +445,14 @@ static void guiShowBlockDeviceConfig(void)
+     diaSetInt(diaBlockDevicesConfig, CFG_ENABLEMX4SIO, gEnableMX4SIO);
+     diaSetEnabled(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, !gHDDStartMode);
+     diaSetInt(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, gEnableBdmHDD);
++    diaSetInt(diaBlockDevicesConfig, CFG_ENABLENETBOX, gEnableNetBox); // [NETBOX]
+ 
+     ret = diaExecuteDialog(diaBlockDevicesConfig, -1, 1, NULL);
+     if (ret) {
+         diaGetInt(diaBlockDevicesConfig, CFG_ENABLEILK, &gEnableILK);
+         diaGetInt(diaBlockDevicesConfig, CFG_ENABLEMX4SIO, &gEnableMX4SIO);
+         diaGetInt(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, &gEnableBdmHDD);
++        diaGetInt(diaBlockDevicesConfig, CFG_ENABLENETBOX, &gEnableNetBox); // [NETBOX]
+     }
+ }
+ 
+diff --git a/src/opl.c b/src/opl.c
+index a6d8fa3..96c1e8c 100644
+--- a/src/opl.c
++++ b/src/opl.c
+@@ -139,6 +139,7 @@ int smbCacheSize;
+ int gEnableILK;
+ int gEnableMX4SIO;
+ int gEnableBdmHDD;
++int gEnableNetBox; // [NETBOX] NetBox 网络硬盘开关（设置项 enable_netbox）
+ int gAutosort;
+ int gAutoRefresh;
+ int gEnableNotifications;
+@@ -956,6 +957,7 @@ static void _loadConfig()
+             configGetInt(configOPL, CONFIG_OPL_ENABLE_ILINK, &gEnableILK);
+             configGetInt(configOPL, CONFIG_OPL_ENABLE_MX4SIO, &gEnableMX4SIO);
+             configGetInt(configOPL, CONFIG_OPL_ENABLE_BDMHDD, &gEnableBdmHDD);
++            configGetInt(configOPL, CONFIG_OPL_ENABLE_NETBOX, &gEnableNetBox); // [NETBOX]
+             configGetInt(configOPL, CONFIG_OPL_SFX, &gEnableSFX);
+             configGetInt(configOPL, CONFIG_OPL_BOOT_SND, &gEnableBootSND);
+             configGetInt(configOPL, CONFIG_OPL_BGM, &gEnableBGM);
+@@ -1126,6 +1128,7 @@ static void _saveConfig()
+         configSetInt(configOPL, CONFIG_OPL_ENABLE_ILINK, gEnableILK);
+         configSetInt(configOPL, CONFIG_OPL_ENABLE_MX4SIO, gEnableMX4SIO);
+         configSetInt(configOPL, CONFIG_OPL_ENABLE_BDMHDD, gEnableBdmHDD);
++        configSetInt(configOPL, CONFIG_OPL_ENABLE_NETBOX, gEnableNetBox); // [NETBOX]
+         configSetInt(configOPL, CONFIG_OPL_SFX, gEnableSFX);
+         configSetInt(configOPL, CONFIG_OPL_BOOT_SND, gEnableBootSND);
+         configSetInt(configOPL, CONFIG_OPL_BGM, gEnableBGM);
+@@ -1768,6 +1771,7 @@ static void setDefaults(void)
+     gEnableILK = 0;
+     gEnableMX4SIO = 0;
+     gEnableBdmHDD = 0;
++    gEnableNetBox = 1; // [NETBOX] 默认开启，保持与原硬编码行为一致（仅当 BDM 模式启用时才会真正加载驱动）
+ 
+     frameCounter = 0;
  
