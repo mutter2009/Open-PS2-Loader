@@ -5,16 +5,12 @@
 #   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
 #   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
 #
-# 用法：仓库 Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow
-#       跑完在该次运行的 Artifacts 里下载 OPNPS2LD-netbox
+# 触发方式：只允许手动触发（Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow）
+#          刻意不配置 push 触发，这样每次改动/上传文件都不会自动编译。
 name: OPL-netbox
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'netbox.patch'
-      - '.github/workflows/opl-netbox.yml'
 
 jobs:
   build:
@@ -32,8 +28,6 @@ jobs:
       - name: Apply netbox patch
         run: |
           git apply --verbose --exclude='.github/workflows/*' netbox.patch
-          echo "--- patch applied, changes: ---"
-          git status --short
 
       - name: Compile -> make clean release
         run: make --trace clean release
