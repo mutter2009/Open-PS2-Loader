@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..b5668b3
+index 0000000..5d5b763
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,40 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -11,16 +11,12 @@ index 0000000..b5668b3
 +#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
 +#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
 +#
-+# 用法：仓库 Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow
-+#       跑完在该次运行的 Artifacts 里下载 OPNPS2LD-netbox
++# 触发方式：只允许手动触发（Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow）
++#          刻意不配置 push 触发，这样每次改动/上传文件都不会自动编译。
 +name: OPL-netbox
 +
 +on:
 +  workflow_dispatch:
-+  push:
-+    paths:
-+      - 'netbox.patch'
-+      - '.github/workflows/opl-netbox.yml'
 +
 +jobs:
 +  build:
@@ -38,8 +34,6 @@ index 0000000..b5668b3
 +      - name: Apply netbox patch
 +        run: |
 +          git apply --verbose --exclude='.github/workflows/*' netbox.patch
-+          echo "--- patch applied, changes: ---"
-+          git status --short
 +
 +      - name: Compile -> make clean release
 +        run: make --trace clean release
@@ -340,10 +334,10 @@ index 0000000..3cb3904
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..a2e7a5f
+index 0000000..c060b22
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,663 @@
+@@ -0,0 +1,665 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -522,8 +516,10 @@ index 0000000..a2e7a5f
 +    b[(*off)++] = (u8)(param & 0xFF);
 +}
 +
-+#define W(reg, val) put_rec(b, off, NB_T_CMD, NB_C_W, (u16)(((reg) << 8) | ((val) & 0xFF)))
-+#define R(reg)      put_rec(b, off, NB_T_CMD, NB_C_R, (u16)(((reg) << 8)))
++/* 注意：put_rec 的第二参数是 int*（要回填偏移），所以宏里必须取地址 &off。
++ * 只应在声明了 (u8 *b, int off) 的函数体内使用。 */
++#define W(reg, val) put_rec(b, &off, NB_T_CMD, NB_C_W, (u16)(((reg) << 8) | ((val) & 0xFF)))
++#define R(reg)      put_rec(b, &off, NB_T_CMD, NB_C_R, (u16)(((reg) << 8)))
 +
 +/*
 + * 构造一个读请求。布局与抓包完全一致（已用两条真实抓包逐字节验证过）：
