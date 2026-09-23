@@ -1,13 +1,13 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..5d5b763
+index 0000000..8055448
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,86 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
-+#   netbox.patch 只是一个“补丁文件”，光把它上传到仓库不会改动任何代码。
++#   netbox.patch 只是一个"补丁文件"，光把它上传到仓库不会改动任何代码。
 +#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
 +#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
 +#
@@ -31,6 +31,11 @@ index 0000000..5d5b763
 +          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 +          git fetch --prune --unshallow || true
 +
++      - name: 补丁指纹（确认编的是哪一版补丁）
++        run: |
++          sha256sum netbox.patch
++          grep -c '^diff --git' netbox.patch
++
 +      - name: Apply netbox patch
 +        run: |
 +          git apply --verbose --exclude='.github/workflows/*' netbox.patch
@@ -38,12 +43,53 @@ index 0000000..5d5b763
 +      - name: Compile -> make clean release
 +        run: make --trace clean release
 +
-+      - name: Upload ELF
++      # 关键：发布版 ELF 是 ps2-packer 压缩过的，字符串全没了，
++      # 没法用它判断"驱动到底有没有编进去"。所以这里另外收集证据：
++      # 未压缩的 opl.elf、链接 map、以及 bin2c 产物。
++      - name: Collect verification info
++        if: ${{ always() }}
++        run: |
++          {
++            echo "=== netbox.patch sha256（对着我给的哈希核对版本）==="
++            sha256sum netbox.patch
++            echo
++            echo "=== modules/netbox IRX 产物 ==="
++            ls -la modules/netbox/*.irx 2>&1
++            echo
++            echo "=== bin2c 产物 asm/netbox.c ==="
++            ls -la asm/netbox.c 2>&1
++            echo
++            echo "=== 目标文件 obj/netbox.o ==="
++            ls -la obj/netbox.o 2>&1
++            echo
++            echo "=== opl.map 里的 netbox 符号（证明链进了 ELF）==="
++            grep -i netbox opl.map 2>&1 | head -30
++            echo
++            echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
++            strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
++            echo
++            echo "=== 产物清单 ==="
++            ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
++          } > verify.txt 2>&1
++          cat verify.txt
++
++      - name: Upload ELF（PS2 用这个）
 +        if: ${{ success() }}
 +        uses: actions/upload-artifact@v4
 +        with:
 +          name: OPNPS2LD-netbox
 +          path: OPNPS2LD-*.ELF
++
++      - name: Upload build evidence（排查用，别拷进 PS2）
++        if: ${{ always() }}
++        uses: actions/upload-artifact@v4
++        with:
++          name: netbox-build-verify
++          if-no-files-found: warn
++          path: |
++            verify.txt
++            opl.elf
++            opl.map
 diff --git a/Makefile b/Makefile
 index d02af90..587fc44 100644
 --- a/Makefile
@@ -81,10 +127,18 @@ index d02af90..587fc44 100644
  	$(BIN2C) $< $@ $(*F)_irx
  
 diff --git a/include/bdmsupport.h b/include/bdmsupport.h
-index 0b6df1f..e24744c 100644
+index 0b6df1f..afc3acd 100644
 --- a/include/bdmsupport.h
 +++ b/include/bdmsupport.h
-@@ -22,6 +22,7 @@ typedef struct
+@@ -17,11 +17,15 @@ typedef struct
+ 
+ #define MAX_BDM_DEVICES 5
+ 
++// [NETBOX] 1 = netbox BDM 驱动已驻留（网络栈不能被拆，见 bdmsupport.c / ethsupport.c）
++extern int gNetBoxDriverLoaded;
++
+ #define BDM_TYPE_UNKNOWN -1
+ #define BDM_TYPE_USB     0
  #define BDM_TYPE_ILINK   1
  #define BDM_TYPE_SDC     2
  #define BDM_TYPE_ATA     3
@@ -334,10 +388,10 @@ index 0000000..3cb3904
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..c060b22
+index 0000000..4a5da85
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,665 @@
+@@ -0,0 +1,677 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -946,6 +1000,7 @@ index 0000000..c060b22
 +    iop_sema_t sema;
 +    u64 sectors;
 +    int one = 1;
++    int try;
 +    (void)argc; (void)argv;
 +
 +    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.0\n");
@@ -963,8 +1018,15 @@ index 0000000..c060b22
 +    /* 1) 注册原始帧钩子（必须在 socket 之前，否则丢帧） */
 +    ps2ip_set_raw_hook(netbox_raw_hook);
 +
-+    /* 2) UDP socket 绑定 40000 */
-+    g_sock = NETBOX_SOCKET(AF_INET, SOCK_DGRAM, 0);
++    /* 2) UDP socket 绑定 40000
++     * ps2ip 可能还在被 OPL 的初始化流程用着（ethLoadInitModules 里有最长 30 秒的
++     * 链路/DHCP 等待），socket() 会短暂失败。最多重试 10 秒，别急着放弃。 */
++    for (try = 0; try < 20; try++) {
++        g_sock = NETBOX_SOCKET(AF_INET, SOCK_DGRAM, 0);
++        if (g_sock >= 0)
++            break;
++        DelayThread(500 * 1000);
++    }
 +    if (g_sock < 0) {
 +        printf("netbox: socket() 失败\n");
 +        return MODULE_NO_RESIDENT_END;
@@ -983,16 +1045,20 @@ index 0000000..c060b22
 +        return MODULE_NO_RESIDENT_END;
 +    }
 +
-+    /* 3) 开机握手（激活盒子）—— 必须在任何读操作之前 */
-+    nb_handshake();
-+    DelayThread(20 * 1000); /* 20ms，等盒子就绪 */
++    /* 3) 开机握手（激活盒子）—— 必须在任何读操作之前。
++     * 盒子可能刚上电还没就绪，或第一条广播还没走通，所以整体重试 3 轮。 */
++    for (try = 0; try < 3 && sectors == 0; try++) {
++        nb_handshake();
++        DelayThread(50 * 1000); /* 50ms，等盒子应答 */
++        sectors = nb_identify_sectors();
++    }
 +
 +    /* 4) 探容量 */
-+    sectors = nb_identify_sectors();
 +    if (sectors == 0) {
-+        /* 兜底：盒子内置盘常见值，实机验证后应改成 IDENTIFY 结果或模块参数 */
++        /* 兜底：盒子内置盘常见值。注意：走到这里说明盒子没应答，
++         * 读盘大概率会失败（OPL 会因为 fileXioDopen 失败而不显示设备）。 */
 +        sectors = 1953525168ULL; /* 1TB */
-+        printf("netbox: 使用兜底容量 %d 个扇区\n", (u32)(sectors & 0xFFFFFFFF));
++        printf("netbox: 盒子无应答，使用兜底容量 %d 个扇区\n", (u32)(sectors & 0xFFFFFFFF));
 +    }
 +    g_netbox_bd.sectorCount = sectors;
 +
@@ -1122,41 +1188,77 @@ index f00bdd9..98a3232 100644
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..6aca8a2 100644
+index b181dec..74a0baa 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
-@@ -23,6 +23,8 @@
+@@ -11,6 +11,7 @@
+ #include "include/extern_irx.h"
+ #include "include/cheatman.h"
+ #include "include/sound.h"
++#include "include/ethsupport.h" // [NETBOX] 复用 OPL 的以太网初始化 ethLoadInitModules()
+ #include "modules/iopcore/common/cdvd_config.h"
+ 
+ #include <usbhdfsd-common.h>
+@@ -23,6 +24,11 @@
  static int iLinkModLoaded = 0;
  static int mx4sioModLoaded = 0;
  static int hddModLoaded = 0;
 +static int netboxModLoaded = 0;
-+int gEnableNetBox = 1;  // [NETBOX] TODO: 接入 OPL 设置菜单  // [NETBOX]
++int gEnableNetBox = 1;  // [NETBOX] TODO: 接入 OPL 设置菜单
++// [NETBOX] 驱动是否已驻留。ethsupport.c 用它决定"能不能拆网络栈/关 DEV9" ——
++// netbox 的读盘全靠 ps2ip+smap，栈一拆设备立刻变成哑设备。
++int gNetBoxDriverLoaded = 0;
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +105,21 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +109,46 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
 +    if (gEnableNetBox && !netboxModLoaded) {
-+        // [NETBOX]
-+        // netbox 走网络，必须先有 smap + ps2ip（lwIP）。
-+        // 这两者与 smb 用的是同一份 irx，重复加载是安全的。
-+        LOG("bdmLoadBlockDeviceModules loading netbox drivers...\n");
-+        LOG("[SMAP]:\n");
-+        sysLoadModuleBuffer(&smap_irx, size_smap_irx, 0, NULL);
-+        LOG("[PS2IP]:\n");
-+        sysLoadModuleBuffer(&ps2ip_irx, size_ps2ip_irx, 0, NULL);
-+        LOG("[NETBOX]:\n");
-+        sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL);
++        int saved_dhcp;
 +
-+        netboxModLoaded = 1;
++        // [NETBOX]
++        // netbox 走 UDP，必须先有【完整】网络栈：
++        //   sysInitDev9 → netman + NetManInit → smap → 设置链路模式 → ps2ip
++        //   → ps2ips → ps2ip_init()
++        // ethLoadInitModules() 就是 OPL 自己的网络初始化入口（opl.c / gui.c /
++        // debug.c 都在用）。这里刻意不自己逐个加载模块，因为有两个坑：
++        //
++        // 坑 1：网络栈会被 OPL 自己拆掉。
++        //   OPL 启动时（ethInit → smbLoadModules）就会把网络栈起来一次；但从
++        //   ETH(SMB) 设备切到 BDM 设备列表、或者启动 BDM 游戏时，OPL 会调
++        //   ethShutdown/ethCleanUp → ethDeinitModules() → ps2ip_deinit()。
++        //   于是轮到加载 netbox 时，ps2ip 已经被 deinit 过了（模块还在，栈没了），
++        //   驱动里 socket()/sendto 全废 → 读盘全失败 → 设备即使注册了也读不出分区，
++        //   OPL 就干脆不显示它（bdmUpdateDeviceData 要求 fileXioDopen("massN:/") 成功）。
++        //   ethLoadInitModules() 内部会把 ethModulesLoaded 重新走一遍完整加载，
++        //   包含 ps2ip_init()，所以这里调它就等于"重新把栈支起来"。
++        //   另外 ethsupport.c 里也加了 gNetBoxDriverLoaded 判断，避免驱动在用时被拆。
++        //
++        // 坑 2：返回值绝对不能当门槛。
++        //   OPL 默认 ps2_ip_use_dhcp = 1（opl.c setDefaultConfig）。netbox 这条直连
++        //   链路上通常没有 DHCP 服务器，ethInitApplyConfig() 会白等 30 秒然后返回
++        //   ERROR_ETH_DHCP_FAIL。而 netbox 全程用广播（255.255.255.255:30000），
++        //   根本不需要 IP —— 所以临时关掉 DHCP 拿静态 IP，并且【忽略返回值】，
++        //   只要 smap/ps2ip 在、ps2ip_init() 跑过就够了。
++        saved_dhcp = ps2_ip_use_dhcp;
++        ps2_ip_use_dhcp = 0;
++        ethLoadInitModules();
++        ps2_ip_use_dhcp = saved_dhcp;
++
++        LOG("[NETBOX]:\n");
++        if (sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL) >= 0) {
++            netboxModLoaded = 1;
++            gNetBoxDriverLoaded = 1;
++        } else
++            LOG("netbox: netbox.irx 加载失败\n");
 +    }
 +
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +206,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +235,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1166,7 +1268,7 @@ index b181dec..6aca8a2 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +843,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +872,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -1174,4 +1276,46 @@ index b181dec..6aca8a2 100644
 +                pDeviceData->bdmDeviceType = BDM_TYPE_NETBOX;
          } else
              pDeviceData->bdmDeviceType = BDM_TYPE_UNKNOWN;
+ 
+diff --git a/src/ethsupport.c b/src/ethsupport.c
+index f0462fa..a1aefb0 100644
+--- a/src/ethsupport.c
++++ b/src/ethsupport.c
+@@ -17,6 +17,7 @@
+ #include <fileXio_rpc.h> // fileXioDevctl(ethBase, SMB_***)
+ 
+ #include "include/nbns.h"
++#include "include/bdmsupport.h" // [NETBOX] gNetBoxDriverLoaded
+ #include "httpclient.h"
+ 
+ static char ethPrefix[40]; // Contains the full path to the folder where all the games are.
+@@ -752,6 +753,14 @@ static void ethCleanUp(item_list_t *itemList, int exception)
+             ethSMBDisconnect();
+     }
+ 
++    // [NETBOX] netbox 的 BDM 驱动驻留时，读盘全靠 ps2ip + smap；这里一旦
++    // ethDeinitModules() 把栈拆掉（ps2ip_deinit + NetManDeinit），设备列表还在
++    // 但一读就错 → 游戏列表刷不出来 / 启动黑屏。所以保持网络栈不动。
++    if (gNetBoxDriverLoaded) {
++        LOG("ETHSUPPORT CleanUp: keep network stack (netbox driver active)\n");
++        return;
++    }
++
+     // UI may have initialized modules outside of ETH mode, so deinitialize regardless of the enabled status.
+     ethDeinitModules();
+ }
+@@ -768,6 +777,14 @@ static void ethShutdown(item_list_t *itemList)
+         ethSMBDisconnect();
+     }
+ 
++    // [NETBOX] 启动 BDM 游戏时 OPL 会走 deinit(NO_EXCEPTION, BDM_MODE)，对 ETH
++    // 支持就是进到这里：原本会把网络栈和 DEV9 一起关掉。netbox 的读盘全靠它们，
++    // 关掉 = 进游戏后读数据全失败。所以驱动驻留期间跳过。
++    if (gNetBoxDriverLoaded) {
++        LOG("ETHSUPPORT Shutdown: keep network stack (netbox driver active)\n");
++        return;
++    }
++
+     // UI may have initialized modules outside of ETH mode, so deinitialize regardless of the enabled status.
+     ethDeinitModules();
  
