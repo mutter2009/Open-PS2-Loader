@@ -1,0 +1,46 @@
+# [NETBOX] 云端编译 OPL + netbox 驱动
+#
+# 为什么要有这个 workflow：
+#   netbox.patch 只是一个“补丁文件”，光把它上传到仓库不会改动任何代码。
+#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
+#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
+#
+# 用法：仓库 Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow
+#       跑完在该次运行的 Artifacts 里下载 OPNPS2LD-netbox
+name: OPL-netbox
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'netbox.patch'
+      - '.github/workflows/opl-netbox.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/ps2homebrew/ps2homebrew:main
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Full history
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --prune --unshallow || true
+
+      - name: Apply netbox patch
+        run: |
+          git apply --verbose --exclude='.github/workflows/*' netbox.patch
+          echo "--- patch applied, changes: ---"
+          git status --short
+
+      - name: Compile -> make clean release
+        run: make --trace clean release
+
+      - name: Upload ELF
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPNPS2LD-netbox
+          path: OPNPS2LD-*.ELF
