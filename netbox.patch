@@ -1,30 +1,48 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..f5d727d
+index 0000000..b5668b3
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,28 @@
-+# [NETBOX] 云端编译 OPL + netbox
+@@ -0,0 +1,46 @@
++# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
-+# 本机没有 PS2DEV 工具链时用它：push 到 GitHub 后 Actions 自动编译，
-+# 产出的 OPNPS2LD-*.ELF 在 Artifacts 里下载。
++# 为什么要有这个 workflow：
++#   netbox.patch 只是一个“补丁文件”，光把它上传到仓库不会改动任何代码。
++#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
++#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
++#
++# 用法：仓库 Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow
++#       跑完在该次运行的 Artifacts 里下载 OPNPS2LD-netbox
 +name: OPL-netbox
 +
 +on:
-+  push:
 +  workflow_dispatch:
++  push:
++    paths:
++      - 'netbox.patch'
++      - '.github/workflows/opl-netbox.yml'
 +
 +jobs:
 +  build:
 +    runs-on: ubuntu-latest
 +    container: ghcr.io/ps2homebrew/ps2homebrew:main
 +    steps:
-+      - uses: actions/checkout@v4
++      - name: git checkout
++        uses: actions/checkout@v4
 +
-+      - name: Compile
++      - name: Full history
 +        run: |
 +          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-+          make clean release
++          git fetch --prune --unshallow || true
++
++      - name: Apply netbox patch
++        run: |
++          git apply --verbose --exclude='.github/workflows/*' netbox.patch
++          echo "--- patch applied, changes: ---"
++          git status --short
++
++      - name: Compile -> make clean release
++        run: make --trace clean release
 +
 +      - name: Upload ELF
 +        if: ${{ success() }}
@@ -94,11 +112,14 @@ index 4acdc9f..4d540bd 100644
  
 diff --git a/modules/netbox/Makefile b/modules/netbox/Makefile
 new file mode 100644
-index 0000000..94347e8
+index 0000000..6073eca
 --- /dev/null
 +++ b/modules/netbox/Makefile
-@@ -0,0 +1,17 @@
-+IOP_BIN  = netbox_bd.irx
+@@ -0,0 +1,20 @@
++# 注意：产物名必须是 netbox.irx —— 根目录 Makefile 的
++#   modules/netbox/netbox.irx -> asm/netbox.c (bin2c) -> iop/netbox.o
++# 这条链是按这个名字写死的，改成别的名字 bin2c 会找不到文件。
++IOP_BIN  = netbox.irx
 +IOP_OBJS = netbox_bd.o imports.o
 +
 +# 与 OPL 其他 IOP 模块（如 modules/bdmevent）保持一致
@@ -319,10 +340,10 @@ index 0000000..3cb3904
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..343477a
+index 0000000..a2e7a5f
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,652 @@
+@@ -0,0 +1,663 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -364,6 +385,11 @@ index 0000000..343477a
 +/* 打开下面的宏即可切换。                                                */
 +/* ------------------------------------------------------------------ */
 +
++/* ps2sdk 的 IOP 头里没有 socklen_t（OPL 的 smstcpip-common.h 才定义它），
++ * 这里自带等价类型，避免依赖 lwIP 头文件。 */
++typedef int nb_socklen_t;
++struct sockaddr;
++
 +#ifdef NETBOX_USE_PLWIP
 +#define NETBOX_SOCKET  (*plwip_socket)
 +#define NETBOX_CLOSE   (*plwip_close)
@@ -374,13 +400,13 @@ index 0000000..343477a
 +#define NETBOX_INET_ADDR (*pinet_addr)
 +
 +extern int (*plwip_close)(int s);
-+extern int (*plwip_bind)(int s, struct sockaddr *name, socklen_t namelen);
++extern int (*plwip_bind)(int s, struct sockaddr *name, nb_socklen_t namelen);
 +extern int (*plwip_recvfrom)(int s, void *mem, int hlen, void *payload, int plen,
-+                             unsigned int flags, struct sockaddr *from, socklen_t *fromlen);
++                             unsigned int flags, struct sockaddr *from, nb_socklen_t *fromlen);
 +extern int (*plwip_sendto)(int s, void *dataptr, int size, unsigned int flags,
-+                           struct sockaddr *to, socklen_t tolen);
++                           struct sockaddr *to, nb_socklen_t tolen);
 +extern int (*plwip_socket)(int domain, int type, int protocol);
-+extern int (*plwip_setsockopt)(int s, int level, int optname, const void *optval, socklen_t optlen);
++extern int (*plwip_setsockopt)(int s, int level, int optname, const void *optval, nb_socklen_t optlen);
 +extern u32 (*pinet_addr)(const char *cp);
 +#else
 +#define NETBOX_SOCKET  lwip_socket
@@ -393,12 +419,12 @@ index 0000000..343477a
 +
 +extern int lwip_socket(int domain, int type, int protocol);
 +extern int lwip_close(int s);
-+extern int lwip_bind(int s, struct sockaddr *name, socklen_t namelen);
++extern int lwip_bind(int s, struct sockaddr *name, nb_socklen_t namelen);
 +extern int lwip_sendto(int s, void *dataptr, int size, unsigned int flags,
-+                       struct sockaddr *to, socklen_t tolen);
++                       struct sockaddr *to, nb_socklen_t tolen);
 +extern int lwip_recvfrom(int s, void *mem, int hlen, void *payload, int plen,
-+                         unsigned int flags, struct sockaddr *from, socklen_t *fromlen);
-+extern int lwip_setsockopt(int s, int level, int optname, const void *optval, socklen_t optlen);
++                         unsigned int flags, struct sockaddr *from, nb_socklen_t *fromlen);
++extern int lwip_setsockopt(int s, int level, int optname, const void *optval, nb_socklen_t optlen);
 +extern u32 inet_addr(const char *cp);
 +#endif
 +
@@ -467,7 +493,7 @@ index 0000000..343477a
 +    CpuSuspendIntr(&state);
 +    next = (rx_head + 1) % NB_RX_SLOTS;
 +    if (next != rx_tail) { /* 非满 */
-+        mips_memcpy(rx_buf[rx_head], frame, len);
++        memcpy(rx_buf[rx_head], frame, len);
 +        rx_len[rx_head] = len;
 +        rx_head         = next;
 +    }
@@ -569,7 +595,7 @@ index 0000000..343477a
 +    struct nb_sockaddr_in dst;
 +    int r;
 +
-+    mips_memset(&dst, 0, sizeof(dst));
++    memset(&dst, 0, sizeof(dst));
 +    dst.sin_len    = sizeof(dst);
 +    dst.sin_family = AF_INET;
 +    dst.sin_port   = htons_(NB_PORT);
@@ -773,7 +799,7 @@ index 0000000..343477a
 +            if (r == 1 && t > txn && t <= (u16)(txn + count)) {
 +                int idx = t - txn - 1;
 +                if (!(bitmap & (1u << idx))) {
-+                    mips_memcpy(buffer + (idx * NB_DATA_SIZE), data, NB_DATA_SIZE);
++                    memcpy(buffer + (idx * NB_DATA_SIZE), data, NB_DATA_SIZE);
 +                    bitmap |= (1u << idx);
 +                    received[idx] = 1;
 +                    got++;
@@ -803,7 +829,7 @@ index 0000000..343477a
 +    u16 txn;
 +    int len, got = 0, tries, deadline;
 +
-+    mips_memset(id, 0, sizeof(id));
++    memset(id, 0, sizeof(id));
 +
 +    /*
 +     * 注意：IDENTIFY 请求的结构与读扇区不同（无 LBA 写入），
@@ -834,7 +860,7 @@ index 0000000..343477a
 +                continue;
 +            }
 +            if (r == 1 && t == txn) {
-+                mips_memcpy(id, data, NB_DATA_SIZE);
++                memcpy(id, data, NB_DATA_SIZE);
 +                got = 1;
 +                break;
 +            }
@@ -892,20 +918,26 @@ index 0000000..343477a
 +static void netbox_flush(struct block_device *bd) { (void)bd; }
 +static int  netbox_stop(struct block_device *bd)  { (void)bd; return 0; }
 +
++/* 用“指定初始化”而不是按位置初始化，两个原因：
++ *  1) ps2sdk 新版的 bdm.h 给 struct block_device 加了 path 字段，旧版没有；
++ *     指定初始化对两种版本都能编译（不给 path 赋值 = 保持 NULL）。
++ *  2) path 必须留 NULL。OPL 是按 "mass%d:" 前缀枚举 BDM 设备的
++ *     （见 src/bdmsupport.c 的 bdmUpdateDeviceData / bdmFindPartition），
++ *     一旦给 path 赋了前缀，设备会注册到别的 iomanX 前缀下，OPL 反而找不到它。
++ */
 +static struct block_device g_netbox_bd = {
-+    NULL,                 /* priv */
-+    "netbox",             /* name */
-+    0,                    /* devNr */
-+    0,                    /* parNr */
-+    0,                    /* parId */
-+    512,                  /* sectorSize */
-+    0,                    /* sectorOffset */
-+    0,                    /* sectorCount (运行时填) */
-+    netbox_read,
-+    netbox_write,
-+    netbox_flush,
-+    netbox_stop,
-+    "netbox",             /* path -> OPL 里显示为 netbox0: */
++    .priv         = NULL,
++    .name         = "netbox",
++    .devNr        = 0,
++    .parNr        = 0,
++    .parId        = 0,
++    .sectorSize   = 512,
++    .sectorOffset = 0,
++    .sectorCount  = 0, /* 运行时由 IDENTIFY 填入 */
++    .read         = netbox_read,
++    .write        = netbox_write,
++    .flush        = netbox_flush,
++    .stop         = netbox_stop,
 +};
 +
 +/* ------------------------------------------------------------------ */
@@ -944,7 +976,7 @@ index 0000000..343477a
 +
 +    NETBOX_SETSOCKOPT(g_sock, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
 +
-+    mips_memset(&me, 0, sizeof(me));
++    memset(&me, 0, sizeof(me));
 +    me.sin_len    = sizeof(me);
 +    me.sin_family = AF_INET;
 +    me.sin_port   = htons_(NB_LOCAL_PORT);
@@ -1041,34 +1073,22 @@ index 5aba86b..53875a7 100644
 +	DECLARE_EXPORT(ps2ip_set_raw_hook)		//42
  END_EXPORT_TABLE
 diff --git a/modules/network/SMSTCPIP/ps2ip.c b/modules/network/SMSTCPIP/ps2ip.c
-index f00bdd9..c3afb84 100644
+index f00bdd9..98a3232 100644
 --- a/modules/network/SMSTCPIP/ps2ip.c
 +++ b/modules/network/SMSTCPIP/ps2ip.c
-@@ -186,7 +186,12 @@ static void InputCB(void *pvArg)
-     u8FirstMSG = GetNextMSGQueueIndex(u8FirstMSG);
-     CpuResumeIntr(iFlags);
+@@ -62,6 +62,24 @@ IRX_ID(MODNAME, 1, 5);
  
--    switch (((struct eth_hdr *)(pInput->payload))->type) {
-+        /* [NETBOX] 在 IP 解析(含 pbuf_realloc 裁剪)之前交出完整以太网帧 */
-+    if (g_ps2ip_raw_hook != NULL && pInput->tot_len == pInput->len) {
-+        g_ps2ip_raw_hook(pInput->payload, pInput->len);
-+    }
-+
-+switch (((struct eth_hdr *)(pInput->payload))->type) {
+ extern struct irx_export_table _exp_ps2ip;
  
-         case ETHTYPE_IP:
-             etharp_ip_input(pNetIF, pInput);
-@@ -206,6 +211,22 @@ static void InputCB(void *pvArg)
- 
- extern sys_mbox_t g_TCPIPMBox;
- 
-+
-+/* [NETBOX] netbox raw frame hook.
++/* [NETBOX] netbox 原始帧钩子。
 + * 盒子的应答是"畸形 IP 包"：IP 头声明 124 字节，但以太网帧实际 640 字节，
-+ * 512 字节扇区数据在 IP 声明长度之外。lwIP 的 ip_input() 里有
++ * 512 字节扇区数据落在 IP 声明长度之外。lwIP 的 ip_input() 里有
 + *     pbuf_realloc(p, ntohs(IPH_LEN(iphdr)));
-+ * 会把 pbuf 裁到 124 字节，扇区数据当场丢失 —— 所以必须在裁剪之前
-+ * 把完整以太网帧交给订阅者。这是纯新增，不改变原协议栈行为。
++ * 会先把 pbuf 裁到 124 字节，扇区数据当场丢失 —— 所以必须在裁剪之前
++ * 把完整以太网帧交给订阅者。纯新增，不改变原协议栈行为。
++ *
++ * 注意：本定义必须放在 InputCB() 与 ps2ip_input() 之前
++ *      （SMSTCPIP 默认以 -DINTERRUPT_CTX_INPKT 编译，两个函数都会用到它）。
 + */
 +typedef void (*ps2ip_raw_hook_t)(const void *frame, int len);
 +static ps2ip_raw_hook_t g_ps2ip_raw_hook = NULL;
@@ -1078,23 +1098,33 @@ index f00bdd9..c3afb84 100644
 +    g_ps2ip_raw_hook = cb;
 +}
 +
- err_t ps2ip_input(struct pbuf *pInput, struct netif *pNetIF)
- {
-     // When ps2smap receive data, it invokes this function. It'll be called directly by the interrupthandler, which means we are
-@@ -244,7 +265,12 @@ err_t ps2ip_input(struct pbuf *pInput, struct netif *pNetIF)
- err_t ps2ip_input(struct pbuf *pInput, struct netif *pNetIF)
- {
-     // switch(htons(((struct eth_hdr*)(pInput->payload))->type))    // Don't know why, but using htons will cause this function to not work in the SMS LWIP stack.
--    switch (((struct eth_hdr *)(pInput->payload))->type) {
-+        /* [NETBOX] 在 IP 解析(含 pbuf_realloc 裁剪)之前交出完整以太网帧 */
+ #if LWIP_HAVE_LOOPIF
+ static NetIF LoopIF;
+ #endif /* LWIP_HAVE_LOOPIF */
+@@ -186,6 +204,11 @@ static void InputCB(void *pvArg)
+     u8FirstMSG = GetNextMSGQueueIndex(u8FirstMSG);
+     CpuResumeIntr(iFlags);
+ 
++    /* [NETBOX] 在 IP 解析(含 pbuf_realloc 裁剪)之前交出完整以太网帧 */
 +    if (g_ps2ip_raw_hook != NULL && pInput->tot_len == pInput->len) {
 +        g_ps2ip_raw_hook(pInput->payload, pInput->len);
 +    }
 +
-+switch (((struct eth_hdr *)(pInput->payload))->type) {
+     switch (((struct eth_hdr *)(pInput->payload))->type) {
+ 
+         case ETHTYPE_IP:
+@@ -244,6 +267,11 @@ err_t ps2ip_input(struct pbuf *pInput, struct netif *pNetIF)
+ err_t ps2ip_input(struct pbuf *pInput, struct netif *pNetIF)
+ {
+     // switch(htons(((struct eth_hdr*)(pInput->payload))->type))    // Don't know why, but using htons will cause this function to not work in the SMS LWIP stack.
++    /* [NETBOX] 在 IP 解析(含 pbuf_realloc 裁剪)之前交出完整以太网帧 */
++    if (g_ps2ip_raw_hook != NULL && pInput->tot_len == pInput->len) {
++        g_ps2ip_raw_hook(pInput->payload, pInput->len);
++    }
++
+     switch (((struct eth_hdr *)(pInput->payload))->type) {
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
-             etharp_ip_input(pNetIF, pInput);
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
 index b181dec..6aca8a2 100644
 --- a/src/bdmsupport.c
