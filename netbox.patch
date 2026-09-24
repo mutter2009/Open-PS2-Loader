@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..e6ea493
+index 0000000..0f17908
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,140 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -78,23 +78,47 @@ index 0000000..e6ea493
 +            echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 已全部移除）---"
 +            echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
 +            echo
-+            echo "=== [v14 关键证据] 新增的两个 netboxh 导出是否真的编进了二进制 ==="
-+            echo "--- 版本串必须是 v1.4 ... link/hook selftest（看到它就是 v14）---"
++            echo "=== ⚠ 重要：查【函数名】必须查 .notiopmod.elf，不能查 .irx ==="
++            echo "理由（ps2sdk samples/Makefile.iopglobal 第 143-150 行）："
++            echo "    xxx.notiopmod.elf            <- 链接产物，含 .symtab（函数名在这里）"
++            echo "    xxx.notiopmod.stripped.elf   <- \$(IOP_STRIP) --strip-unneeded（符号表被删）"
++            echo "    xxx.irx                      <- iopfixup --rb --irx1（最终产物，已 strip）"
++            echo "所以 grep .irx 找函数名【永远返回 0】，不代表符号没编进去。"
++            echo "能在 .irx 里查到的只有【数据段字符串】：库名 netboxh、IRX_ID、printf 格式串。"
++            echo "（v14 的 verify 就踩过这个坑。）"
++            ls -la modules/network/smap-ingame/*.notiopmod.elf modules/netbox/*.notiopmod.elf 2>&1
++            echo
++            echo "=== [v14 关键证据] 两个真判据（链路 / 钩子自检）==="
++            echo "--- 版本串（在 .irx 里，是数据段的格式串，可查）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
-+            echo "--- netboxh 库必须同时出现在 smap.irx（导出）和 netbox.irx（导入）---"
-+            echo "smap.irx   netboxh  : $(grep -a -c 'netboxh' modules/network/smap-ingame/smap.irx 2>&1)"
-+            echo "netbox.irx netboxh  : $(grep -a -c 'netboxh' modules/netbox/netbox.irx 2>&1)"
-+            echo "--- v14 新增符号（4=smap_get_link_status / 5=smap_get_rx_hook）---"
-+            echo "smap.irx   smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/network/smap-ingame/smap.irx 2>&1)"
-+            echo "smap.irx   smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/network/smap-ingame/smap.irx 2>&1)"
-+            echo "netbox.irx smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/netbox/netbox.irx 2>&1)"
-+            echo "netbox.irx smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/netbox/netbox.irx 2>&1)"
-+            echo "--- v14 自检相关串 ---"
-+            echo "link DOWN 串     : $(grep -a -c 'PHY link DOWN' modules/netbox/netbox.irx 2>&1)"
-+            echo "hook selftest 串 : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
-+            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 起已全部移除）---"
-+            echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
++            echo "--- v14 新增符号 4=smap_get_link_status / 5=smap_get_rx_hook（查未 strip 的 ELF）---"
++            echo "smap ELF   smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF   smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- v14 自检相关串（在 .irx 里，可查）---"
++            echo "link DOWN 串        : $(grep -a -c 'PHY link DOWN' modules/netbox/netbox.irx 2>&1)"
++            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
++            echo
++            echo "=== [v15 关键证据] 寄存器级收发现场诊断是否真的编进了二进制 ==="
++            echo "--- 版本串必须是 v1.5 ... reg-level rx diag（看到它就是 v15，不是 v14）---"
++            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
++            echo "--- v15 新增符号 6=smap_get_rx_diag / 7=smap_get_phy_dump（查未 strip 的 ELF）---"
++            echo "smap ELF   smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF   smap_get_phy_dump : $(grep -a -c 'smap_get_phy_dump' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_get_phy_dump : $(grep -a -c 'smap_get_phy_dump' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- xfer.c 里的收帧记账符号（证明改的是 HandleRxIntr 那条静默丢帧分支）---"
++            echo "smap ELF nb_dbg_rx_bad     : $(grep -a -c 'nb_dbg_rx_bad'     modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF nb_dbg_rx_ok      : $(grep -a -c 'nb_dbg_rx_ok'      modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF nb_dbg_intr_rxend : $(grep -a -c 'nb_dbg_intr_rxend' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF nb_dbg_rx_waiting : $(grep -a -c 'nb_dbg_rx_waiting' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "--- v15 自检/诊断串（在 .irx 里，可查）---"
++            echo "reg-level rx diag 串 : $(grep -a -c 'reg-level rx diag' modules/netbox/netbox.irx 2>&1)"
++            echo "rxq= 诊断串          : $(grep -a -c 'rxq=' modules/netbox/netbox.irx 2>&1)"
++            echo "phy bmsr= 诊断串     : $(grep -a -c 'phy bmsr=' modules/netbox/netbox.irx 2>&1)"
++            echo "FAIL stage= 出现次数 : $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
++            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
 +            echo
@@ -338,10 +362,10 @@ index 0000000..ff4da73
 +include $(PS2SDK)/samples/Makefile.iopglobal
 diff --git a/modules/netbox/imports.lst b/modules/netbox/imports.lst
 new file mode 100644
-index 0000000..ca81e1c
+index 0000000..64febc3
 --- /dev/null
 +++ b/modules/netbox/imports.lst
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,70 @@
 +/*
 + * netbox.irx 的导入清单。
 + *
@@ -368,6 +392,8 @@ index 0000000..ca81e1c
 +I_SMAPGetMACAddress
 +I_smap_get_link_status
 +I_smap_get_rx_hook
++I_smap_get_rx_diag
++I_smap_get_phy_dump
 +netboxh_IMPORTS_end
 +
 +stdio_IMPORTS_start
@@ -573,10 +599,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..3c44c1e
+index 0000000..74878e5
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,1100 @@
+@@ -0,0 +1,1207 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -689,6 +715,9 @@ index 0000000..3c44c1e
 +extern int SMAPSendPacket(const void *data, unsigned int length);
 +extern int SMAPGetMACAddress(unsigned char *buffer);
 +extern int smap_get_link_status(unsigned int *pBMSR, unsigned int *pANLPAR, unsigned int *pLinkMode);
++/* v15：收发路径现场计数 + PHY 快照。都只是读寄存器/读计数器，无副作用。 */
++extern int smap_get_rx_diag(unsigned int *out, int n);
++extern int smap_get_phy_dump(unsigned int *out, int n);
 +
 +/* ------------------------------------------------------------------ */
 +/* 收包环形缓冲（原始帧钩子写入，协议线程消费）                          */
@@ -941,12 +970,37 @@ index 0000000..3c44c1e
 +/*   - 数据拿到了但内容错位                                              */
 +/*                                                                     */
 +/* v13 改成：任何"注册 BD 设备之前"的失败都【不驻留】，并把失败位置编码。 */
-+/* v14 又补了两关（钩子自检、链路自检），并把链路状态一起编进去：        */
++/* v14 又补了两关（钩子自检、链路自检），并把链路状态一起编进去。        */
++/* v15 再把"寄存器级的收发现场"编进去 —— 起因是实机报回                  */
++/*     "FAIL stage=5 hook=0 link ok"：链路通、帧发得出去、一个回包都没有。 */
++/* 而 v14 的屏幕信息到这一步就到头了，其背后的三种原因要往三个完全不同的  */
++/* 方向修，屏幕上却一模一样：                                            */
++/*   (a) 盒子的应答根本没到 PS2 的 MAC/PHY   -> 查线/盒子/协议            */
++/*   (b) 帧到了 MAL，但以太网收帧带错误标志被 xfer.c 里一个【空 if】静默   */
++/*       丢掉                                -> MAC 双工/速率与实际链路不符 */
++/*   (c) 帧到了、也交给上层了，却没进钩子    -> 库/空桩问题               */
++/* v15 用四种"读寄存器得到"的量把 (a)(b)(c) 分开：                        */
++/*   1. PHY 的 PHYSTS（bit0 link / bit1 10M / bit2 全双工）+ PHY ID       */
++/*      —— 直接问 PHY。BMSR 的 link 位不可靠：PHY 不响应时 MDIO 常读回     */
++/*      0xFFFF、link 位就是 1（这正是"链路 OK"假阳性的来源）。           */
++/*   2. MAL 的 SMAP_R_RXFIFO_FRAME_CNT —— 硬件收帧计数，【不依赖中断】，   */
++/*      所以它一定是可信的参照：>0 就证明帧确实到过 PS2。                 */
++/*   3. EMAC3 INTR_STAT 的收发错误位（BAD_FCS / RUNT / OVERRUN / DEAD_0）  */
++/*      —— 区分"收到全是坏帧"和"根本没帧"。                              */
++/*   4. xfer.c 里新增的四个计数器 —— 区分"中断没跑"和"跑了但被丢"。        */
 +/*                                                                     */
-+/*     _start() 返回值 = 1000000 + stage*10000 + link*5000 + hook计数   */
++/*     _start() 返回值 = 1000000 + stage*100000 + lk*10000               */
++/*                                 + rx*1000 + e*100 + hook             */
 +/*                                                                     */
-+/*   link = 1 表示"失败那一刻 PHY 登记到的链路是通的"                    */
-+/*   设置页解码成  "NetBox: FAIL stage=5 hook=0 link ok (v14)"           */
++/*   lk   = PHY 现场模式码：0 无链路 / 1 10M半 / 2 10M全 / 3 100M半 /     */
++/*          4 100M全 / 5 PHY 不响应                                      */
++/*   rx   = MAL 收帧摘要：0 一帧都没到过 PS2 / 1..8 现场压着 N 帧 /       */
++/*          9 有帧到过                                                  */
++/*   e    = 收帧错误类别：0 无 / 1 BD 丢帧 / 2 BAD_FCS / 3 短帧 /         */
++/*          4 其它收帧错 / 5 发帧错误（DEAD_0 等，帧没上线路）            */
++/*   hook = 钩子被调用次数（截到 99）                                    */
++/*   设置页解码成 "NetBox: FAIL noreply lk=1 rx=0 e=0 hk=0 (v15)"        */
++/*   其中 stage 名字（noreply/link/tx/...）直接印在标签上。               */
 +/*                                                                     */
 +/* stage 含义（v14 重新编号 —— v13 的 1/2 是假阳性，已合并重排；        */
 +/* 编号顺序 = 实际检查顺序）：                                           */
@@ -974,34 +1028,113 @@ index 0000000..3c44c1e
 +#define NB_FAIL_BASE      1000000
 +
 +/*
++ * [v15] 失败现场快照。所有值都来自「读寄存器 / 读计数器」，无副作用。
++ *
++ * 为什么要专门做这件事：v14 实机报回的是 "FAIL stage=5 hook=0 link ok"。
++ * 这句话把范围缩小到了"链路读着是通的、帧也发得出去，但一个回包都没进来"，
++ * 然而它背后的三种原因【要往三个完全不同的方向修】，而屏幕上看不出区别：
++ *   (a) 盒子的应答根本没到 PS2 的 MAC      -> 查线/盒子/协议
++ *   (b) 帧到了 MAL，但以太网收帧带错误标志被静默丢掉
++ *       -> MAC 的双工/速率与实际链路不符，或 PHY 其实没真正 link
++ *   (c) 帧到了、也交给上层了，却没进钩子   -> 库/空桩问题
++ * 这里的四组值正好把它们分开：
++ *   1. PHY 的 PHYSTS（bit0 link / bit1 10M / bit2 全双工）+ PHY ID
++ *      —— 这是【直接问 PHY】，比 BMSR 的 link 位可靠（PHY 不响应时 MDIO
++ *         常读回 0xFFFF，BMSR 的 link 位就是 1，正是"链路 OK"的假阳性来源）。
++ *         顺带回答了那个一开始就被忽略的问题：smap_init() 写进 MAC 的是
++ *         硬编码的 100M 全双工，而 InitPHY() 只在"BMSR 说没链路"时才被调用
++ *         —— 链路一开始就 up 的话，速度/双工从来没被协商过。
++ *   2. MAL 的 SMAP_R_RXFIFO_FRAME_CNT —— 硬件收帧计数，【不依赖中断】，
++ *      所以它一定是可信的参照：>0 就证明帧确实到过 PS2。
++ *   3. EMAC3 的 INTR_STAT（收发错误位）—— 区分"坏帧"和"没帧"。
++ *   4. HandleRxIntr 里新增的四个计数器 —— 区分"中断没跑"和"跑了但被丢"。
++ */
++static int          g_lk_code = 0;   /* PHY 链路模式码 0..5 */
++static unsigned int g_phy[10];       /* PHY 原始快照 */
++static unsigned int g_rxd[20];       /* 收发路径计数/错误位 */
++
++static void nb_snapshot(void)
++{
++    memset(g_phy, 0, sizeof(g_phy));
++    memset(g_rxd, 0, sizeof(g_rxd));
++
++    g_lk_code = smap_get_phy_dump(g_phy, 10);
++    smap_get_rx_diag(g_rxd, 20);
++}
++
++/*
++ * rx 字段（1 位数字）—— "帧到底有没有到过 PS2"：
++ *   0     = 完全没有：现场计数 0，且所有 RX 事件计数也都是 0
++ *   1..8  = 现场 MAL 里还压着 N 帧没被取走（上限 8）
++ *   9     = 有帧到过（被中断取走过），或压着 >=9 帧
++ * （原始数字仍在诊断通道/printf 里，屏幕上只放这个摘要。）
++ */
++static int nb_rx_summary(void)
++{
++    int n = (int)g_rxd[0];
++
++    if (n > 9)
++        n = 9;
++    if (n == 0 && (g_rxd[5] | g_rxd[7] | g_rxd[8] | g_rxd[9]) != 0)
++        n = 9;
++
++    return n;
++}
++
++/*
 + * 返回失败码给 IOP 装载器（= MODULE_NO_RESIDENT_END，模块随后被卸载）。
 + * 【钩子必须先摘掉】：钩子函数体在本模块里，模块一卸载，
 + * smap-ingame 之后每收一帧就会跳进已释放的代码 -> 必崩。
 + * smap-ingame 的 SmapPassRawFrame() 有 NULL 判断，摘掉就是干净的。
++ *
++ * 编码（v15，EE 侧 src/gui.c 解码上屏）：
++ *   ret = 1000000 + stage*100000 + lk*10000 + rx*1000 + e*100 + hook
++ *     stage 1..9   失败在第几关（见 NB_STAGE_*）
++ *     lk    0..5   0 none / 1 10M半 / 2 10M全 / 3 100M半 / 4 100M全 / 5 PHY 不响应
++ *     rx    0..9   见 nb_rx_summary()
++ *     e     0..5   0 无错 / 1 BD 丢帧 / 2 BAD_FCS / 3 短帧 / 4 其它收帧错 / 5 发帧错误
++ *     hook  0..99  钩子被调用次数（截到 99）
++ * 这一串是【整条链路上唯一免费的 IOP->EE 通道】：release 版 OPL 没有 ps2link，
++ * IOP 的 printf 没有输出目标，所以失败信息只能挤在返回值里。
 + */
 +static int nb_fail(int stage)
 +{
 +    char msg[160];
 +    int  hooks = g_hook_calls;
-+    int  link  = g_link_up ? 1 : 0;
++    int  rxq;
 +
-+    if (hooks > 4999) /* 编码里 hook 占 0..4999，link 占 5000 那一档 */
-+        hooks = 4999;
++    if (hooks > 99)
++        hooks = 99;
 +
-+    /* 摘钩子：函数体在本模块里，模块卸载后 smap 每收一帧跳进来必崩。
-+     * smap-ingame 的 SmapPassRawFrame() 有 NULL 判断，摘掉就是干净的。 */
++    /* 先抓现场（读寄存器/计数器，无副作用），再摘钩子 —— 摘掉之后 smap 那边
++     * 就不再更新计数器了。 */
++    nb_snapshot();
++    rxq = nb_rx_summary();
++
++    /* 摘钩子：函数体在本模块里，模块卸载后 smap 每收一帧跳进来必崩。 */
 +    smap_set_rx_hook(NULL);
 +
-+    sprintf(msg, "FAIL stage=%d link=%d bmsr=0x%04x hook=%d rx=%d drop=%d txerr=%d -> not resident",
-+            stage, link, (unsigned int)g_last_bmsr & 0xFFFF, hooks,
-+            g_rx_frames, g_rx_drop, g_tx_err);
++    /* 诊断通道（PC 抓 UDP 40001）。分两行，避免超过 nb_diag 的缓冲。
++     * 只有发帧真通时才能收到，所以这里是"锦上添花"，上屏那条才是主通道。 */
++    sprintf(msg, "FAIL stage=%d lk=%d rx=%d e=%d hk=%d -> not resident",
++            stage, g_lk_code, rxq, (int)g_rxd[18], hooks);
 +    nb_diag(msg);
 +
-+    printf("netbox: FAIL stage=%d link=%d hook=%d txerr=%d (not resident)\n",
-+           stage, link, hooks, g_tx_err);
++    sprintf(msg, "rxq=%u txq=%u ok=%u bad=0x%04x ins=%u rxend=%u rxintr=%u wait=%u mode1=%08x emac3=%08x",
++            g_rxd[0], g_rxd[1], g_rxd[9], g_rxd[11],
++            g_rxd[4], g_rxd[5], g_rxd[7], g_rxd[8], g_rxd[12], g_rxd[2] | g_rxd[3]);
++    nb_diag(msg);
 +
-+    /* 编码见上方注释：1000000 + stage*10000 + link*5000 + hook */
-+    return NB_FAIL_BASE + stage * 10000 + link * 5000 + hooks;
++    sprintf(msg, "phy bmsr=%04x sts=%04x bmcr=%04x anlpar=%04x anar=%04x id=%04x%04x",
++            g_phy[1], g_phy[7], g_phy[0], g_phy[5], g_phy[4], g_phy[2], g_phy[3]);
++    nb_diag(msg);
++
++    printf("netbox: FAIL stage=%d lk=%d rx=%d e=%d hk=%d bmsr=0x%04x sts=0x%04x (not resident)\n",
++           stage, g_lk_code, rxq, (int)g_rxd[18], hooks,
++           g_phy[1] & 0xFFFF, g_phy[7] & 0xFFFF);
++
++    return NB_FAIL_BASE + stage * 100000 + g_lk_code * 10000 + rxq * 1000 +
++           (int)g_rxd[18] * 100 + hooks;
 +}
 +
 +/*
@@ -1507,7 +1640,7 @@ index 0000000..3c44c1e
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.4 (raw SMAP + link/hook selftest)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.5 (raw SMAP + reg-level rx diag)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -1626,7 +1759,7 @@ index 0000000..3c44c1e
 +    }
 +
 +    /*
-+     * 7) 自检：真读一次 LBA0。
++     * 6) 自检：真读一次 LBA0。
 +     *    这一步和 fatfs 挂载时做的第一件事【完全一样】（先读引导扇区），
 +     *    所以它过了，就说明 mass0: 基本一定能挂上、设备图标一定会出现。
 +     *    它不过，就没必要注册 BD 设备 —— 反正 OPL 那边的
@@ -1657,7 +1790,7 @@ index 0000000..3c44c1e
 +        return nb_fail(NB_STAGE_BOOTSIG);
 +    }
 +
-+    /* 8) 全通了才注册 BD 设备 */
++    /* 7) 全通了才注册 BD 设备 */
 +    g_netbox_bd.sectorCount = sectors;
 +
 +    {
@@ -1679,10 +1812,10 @@ index 0000000..3c44c1e
 +}
 diff --git a/modules/netbox/netbox_imports.h b/modules/netbox/netbox_imports.h
 new file mode 100644
-index 0000000..3bcf405
+index 0000000..0df905e
 --- /dev/null
 +++ b/modules/netbox/netbox_imports.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,98 @@
 +/*
 + * netbox_imports.h - PS2 NetBox 驱动对外的全部导入声明
 + *
@@ -1753,6 +1886,33 @@ index 0000000..3bcf405
 + *    空桩，smap_set_rx_hook() 静默无效、钩子计数永远是 0。回读比对即可分开。 */
 +#define I_smap_get_rx_hook DECLARE_IMPORT(5, smap_get_rx_hook)
 +
++/* 6: 收发路径的现场计数（v15 新增）。
++ *    int smap_get_rx_diag(unsigned int *out, int n)     —— out 至少 18 个 u32
++ *    out[0]=MAL 收帧计数（硬件计数，不依赖中断）、out[1]=MAL 发帧计数、
++ *    out[2]=EMAC3 中断/错误标志、out[3]=累计 OR 到的 EMAC3 标志、
++ *    out[4..6]=DEV9 中断回调 / RXEND / EMAC3 事件次数、
++ *    out[7..11]=HandleRxIntr 调用 / 看到有帧 / 交上层 / 因错误标志丢弃 / 首个坏 ctrl_stat、
++ *    out[12]=EMAC3 MODE1（实际编程的速度双工）、out[13]=EMAC3 TxMODE0（bit31=发不出去）、
++ *    out[14..15]=RX/TX FIFO 控制、out[16..17]=MAC 地址寄存器。
++ *
++ *    为什么必须有它：v14 实机只报出 "hook=0"，而"帧没到 MAC"、"帧到了但带
++ *    以太网收帧错误标志被静默丢掉"、"帧到了也交上去了但钩子没被调" 这三种
++ *    情况在屏幕上完全一样，修的方向却完全不同（线/盒子 vs 双工速率 vs 库）。
++ *    out[0] 是硬件计数，不依赖中断是否工作，所以它一定是可信的参照。 */
++#define I_smap_get_rx_diag DECLARE_IMPORT(6, smap_get_rx_diag)
++
++/* 7: PHY 现场快照 + 链路模式码（v15 新增）。
++ *    int smap_get_phy_dump(unsigned int *out, int n)    —— out 至少 10 个 u16
++ *    out[0..8]=BMCR/BMSR/PHYIDR1/PHYIDR2/ANAR/ANLPAR/ANER/PHYSTS/10BTSCR
++ *    out[9]=模式码 0 none / 1 10M半 / 2 10M全 / 3 100M半 / 4 100M全 / 5 PHY 不响应
++ *
++ *    为什么要它：smap_init() 写进 MAC 的是【硬编码 100M 全双工】，而 InitPHY()
++ *    只在"BMSR 说没有链路"时才会被调用 —— 链路一开始就 up 的话，速度和双工
++ *    从来没被协商过。PHYSTS(0x10) 的 bit0/1/2 直接给出"link / 10M还是100M /
++ *    半还是全双工"，PHY ID 还能判断 PHY 到底有没有在应答（不响应时 MDIO 常读回
++ *    0xFFFF，BMSR 的 link 位就是 1，正是"链路 OK"假阳性的来源）。 */
++#define I_smap_get_phy_dump DECLARE_IMPORT(7, smap_get_phy_dump)
++
 +#endif /* __NETBOX_IMPORTS_H__ */
 diff --git a/modules/network/smap-ingame/Makefile b/modules/network/smap-ingame/Makefile
 index c99608d..aae4df1 100644
@@ -1767,10 +1927,10 @@ index c99608d..aae4df1 100644
  
 diff --git a/modules/network/smap-ingame/exports.tab b/modules/network/smap-ingame/exports.tab
 new file mode 100644
-index 0000000..d905414
+index 0000000..ee5e045
 --- /dev/null
 +++ b/modules/network/smap-ingame/exports.tab
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,81 @@
 +/*
 + * [NETBOX] 把 smap-ingame 变成「可被外部模块复用的 SMAP 原始帧收发器」。
 + *
@@ -1810,6 +1970,28 @@ index 0000000..d905414
 + *     smap_set_rx_hook() 会静默什么都不做，钩子计数永远是 0，与
 + *     "盒子没回包" 无法区分。回读一次就能把这两者分开。
 + *
++ * v15（2026-09-24 傍晚）再新增两个符号 —— 起因：v14 实机把失败点缩小到
++ * "stage=5 hook=0 link ok"，也就是"链路读了是通的、帧也发得出去，
++ * 但一个回包都没进来"。这三种原因在屏幕上同形、却要往三个完全不同的方向修：
++ *
++ *   (a) 盒子的应答根本没到 PS2 的 MAC        -> 查线/盒子/协议
++ *   (b) 帧到了 MAL，但带以太网收帧错误标志  -> 双工/速率不符、PHY 没真 link
++ *   (c) 帧到了也交给上层了，却没进钩子      -> 库/空桩问题
++ *
++ *   smap_get_rx_diag()  —— 交出 MAL 的收帧计数（SMAP_R_RXFIFO_FRAME_CNT，
++ *     【硬件计数，不依赖中断】）、EMAC3 的中断/错误标志（BAD_FCS/RUNT_FRAME/
++ *     DEAD_0/TX_ERR_0 等）、以及 HandleRxIntr 里新增的四个计数器
++ *     （调用次数/看到有帧的次数/交上层的帧数/因错误标志丢掉的帧数）。
++ *     这三组值一摆，(a)(b)(c) 就能分开。
++ *
++ *   smap_get_phy_dump() —— 交出 PHY 的 BMCR/BMSR/PHYIDR/ANAR/ANLPAR/PHYSTS/
++ *     10BTSCR 现场快照 + 一个解码好的链路模式码。为什么要 PHYSTS：
++ *     BMSR bit2 只说明"有链路"，分不出 10M/100M、半/全双工；而 smap_init()
++ *     写进 MAC 的是【硬编码的 100M 全双工】，InitPHY() 只在"BMSR 说没链路"
++ *     时才会被调用 —— 链路一开始就 up 的话，速度和双工从来没被协商过。
++ *     另外 PHY ID 能判断 PHY 到底有没有应答：不响应时 MDIO 常读到 0xFFFF，
++ *     BMSR 的 link 位就是 1，那正是"链路 OK"假阳性的来源。
++ *
 + * 编号 —— netbox_imports.h 里的 DECLARE_IMPORT 必须与这里严格一致：
 + *   0  _start                沿用其它模块的导出模板（v1 格式约定）
 + *   1  smap_set_rx_hook      void smap_set_rx_hook(void *fn)
@@ -1817,6 +1999,8 @@ index 0000000..d905414
 + *   3  SMAPGetMACAddress     int  SMAPGetMACAddress(unsigned char *buffer)
 + *   4  smap_get_link_status  int  smap_get_link_status(unsigned int *bmsr, unsigned int *anlpar, unsigned int *linkmode)
 + *   5  smap_get_rx_hook      void *smap_get_rx_hook(void)
++ *   6  smap_get_rx_diag      int  smap_get_rx_diag(unsigned int *out, int n)
++ *   7  smap_get_phy_dump     int  smap_get_phy_dump(unsigned int *out, int n)   (返回链路模式码)
 + */
 +DECLARE_EXPORT_TABLE(netboxh, 1, 0)
 +	DECLARE_EXPORT(_start)
@@ -1825,6 +2009,8 @@ index 0000000..d905414
 +	DECLARE_EXPORT(SMAPGetMACAddress)
 +	DECLARE_EXPORT(smap_get_link_status)
 +	DECLARE_EXPORT(smap_get_rx_hook)
++	DECLARE_EXPORT(smap_get_rx_diag)
++	DECLARE_EXPORT(smap_get_phy_dump)
 +END_EXPORT_TABLE
 diff --git a/modules/network/smap-ingame/imports.lst b/modules/network/smap-ingame/imports.lst
 index 22375b2..ae0583f 100644
@@ -1997,25 +2183,93 @@ index 76da054..0743d6b 100644
      } else
          result = MODULE_RESIDENT_END; // Initialized ok.
 diff --git a/modules/network/smap-ingame/main.h b/modules/network/smap-ingame/main.h
-index b3b1796..9f0680f 100644
+index b3b1796..a9d60c3 100644
 --- a/modules/network/smap-ingame/main.h
 +++ b/modules/network/smap-ingame/main.h
-@@ -30,6 +30,10 @@ int SMAPStart(void);
+@@ -30,6 +30,14 @@ int SMAPStart(void);
  void SMAPStop(void);
  int SMAPGetMACAddress(unsigned char *buffer);
  
-+/* [NETBOX] netboxh 额外导出的三个（见 exports.tab） */
++/* [NETBOX] netboxh 库额外导出的符号（编号必须与 exports.tab 严格一致）：
++ *   1 smap_set_rx_hook / 2 SMAPSendPacket / 3 SMAPGetMACAddress / 4 smap_get_link_status
++ *   5 smap_get_rx_hook / 6 smap_get_rx_diag / 7 smap_get_phy_dump */
 +int smap_get_link_status(unsigned int *pBMSR, unsigned int *pANLPAR, unsigned int *pLinkMode);
 +void *smap_get_rx_hook(void);
++int smap_get_rx_diag(unsigned int *out, int n);
++int smap_get_phy_dump(unsigned int *out, int n);
 +
  void SMapLowLevelInput(struct pbuf *pBuf);
  
  #include "xfer.h"
 diff --git a/modules/network/smap-ingame/smap.c b/modules/network/smap-ingame/smap.c
-index f43eb20..2dac18e 100644
+index f43eb20..d11b041 100644
 --- a/modules/network/smap-ingame/smap.c
 +++ b/modules/network/smap-ingame/smap.c
-@@ -674,3 +674,45 @@ int SMAPGetMACAddress(unsigned char *buffer)
+@@ -355,9 +355,32 @@ static unsigned int LinkCheckTimerCB(struct SmapDriverData *SmapDrivPrivData)
+     return SmapDrivPrivData->LinkCheckTimer.lo;
+ }
+ 
++/* ---------------------------------------------------------------------------
++ * [NETBOX] v15 诊断计数器（定义在 smap.c，xfer.c 里用 extern 引用）
++ *
++ * 为什么必须加（v14 实机回来的 "FAIL stage=5 hook=0 link ok" 卡在这儿）：
++ *   hook=0 只说明"一个帧都没交给钩子"，但下面几种完全不同的原因在屏幕上同形：
++ *     (a) 盒子的应答根本没到 PS2 的 MAC        -> 查线/盒子/协议
++ *     (b) 帧到了 MAL，但以太网收帧带错误标志（FCS/短帧/超长/溢出）
++ *         -> MAC 的双工/速率与实际链路不符，或 PHY 其实没真正 link
++ *     (c) 帧到了、也交给上层了，但没进钩子      -> 库/空桩问题
++ *   下面这些计数里，MAL 的 SMAP_R_RXFIFO_FRAME_CNT 是【硬件计数、不依赖中断】
++ *   的收帧计数，配合 EMAC3 的 BAD_FCS/RUNT_FRAME/DEAD_0/TX_ERR_0 标志，
++ *   就能把 (a)(b)(c) 分开。计数器只增不减，驱动读一次就够。
++ * --------------------------------------------------------------------------- */
++unsigned int nb_dbg_intr_cb;    /* Dev9IntrCb 被调用次数 */
++unsigned int nb_dbg_intr_rxend; /* 其中 RXEND（收到帧）事件次数 */
++unsigned int nb_dbg_intr_emac3; /* 其中 EMAC3 事件次数 */
++unsigned int nb_dbg_emac3_seen; /* 在清标志【之前】读到的 EMAC3 INTR_STAT 累计 OR */
++unsigned int nb_dbg_rxintr;     /* HandleRxIntr 被调用次数（xfer.c 里加） */
++unsigned int nb_dbg_rx_waiting; /* 其中看到 RXFIFO_FRAME_CNT>0 的次数 */
++unsigned int nb_dbg_rx_ok;      /* 真正交给 SMapLowLevelInput() 的帧数 */
++unsigned int nb_dbg_rx_bad;     /* 因 BD 错误标志被静默丢掉的帧数 */
++unsigned int nb_dbg_rx_badctrl; /* 第一条被丢帧的 ctrl_stat（0 = 还没遇到） */
++
+ static int Dev9IntrCb(int flag)
+ {
+-    unsigned int IntrReg;
++    unsigned int IntrReg, Emac3Reg;
+     USE_SPD_REGS;
+     volatile u8 *smap_regbase, *emac3_regbase;
+ 
+@@ -369,12 +392,29 @@ static int Dev9IntrCb(int flag)
+ 
+     emac3_regbase = SmapDriverData.emac3_regbase;
+     smap_regbase = SmapDriverData.smap_regbase;
++
++    nb_dbg_intr_cb++;
++
+     while ((IntrReg = SPD_REG16(SPD_R_INTR_STAT) & DEV9_SMAP_INTR_MASK) != 0) {
+         if (IntrReg & SMAP_INTR_EMAC3) {
++            /* [NETBOX] v15：清标志【之前】先把 EMAC3 的中断/错误状态读下来累计。
++             * 这里含收发两侧的错误位：
++             *   收：BAD_FCS / BAD_FRAME / RUNT_FRAME / SHORT_EVENT / ALIGN_ERR /
++             *       TOO_LONG / OVERRUN / OUT_RANGE_ERR / IN_RANGE_ERR
++             *   发：DEAD_0 / SQE_ERR_0 / TX_ERR_0
++             * "收到帧但全是坏帧"（BAD_FCS 之类）和"根本没帧"是两种病：
++             * 前者说明 MAC 的双工/速率与实际链路不符（或 PHY 没真 link），
++             * 后者说明盒子的应答压根没上线。 */
++            Emac3Reg = SMAP_EMAC3_GET32(SMAP_R_EMAC3_INTR_STAT);
++            nb_dbg_emac3_seen |= Emac3Reg;
++            nb_dbg_intr_emac3++;
++
+             SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_EMAC3;
+             SMAP_EMAC3_SET32(SMAP_R_EMAC3_INTR_STAT, SMAP_E3_INTR_TX_ERR_0 | SMAP_E3_INTR_SQE_ERR_0 | SMAP_E3_INTR_DEAD_0);
+         }
+         if (IntrReg & SMAP_INTR_RXEND) {
++            nb_dbg_intr_rxend++;
++
+             SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_RXEND;
+             HandleRxIntr(&SmapDriverData);
+         }
+@@ -674,3 +714,210 @@ int SMAPGetMACAddress(unsigned char *buffer)
  
      return 0;
  }
@@ -2061,6 +2315,221 @@ index f43eb20..2dac18e 100644
 +
 +    return (bmsr & SMAP_PHY_BMSR_LINK) ? 1 : 0;
 +}
++
++/* ---------------------------------------------------------------------------
++ * [NETBOX] v15：把"帧到底走到哪一步"打包交出去（netboxh 导出编号 6）
++ *
++ * out[] 布局（全部 u32，调用方传至少 16 个元素的数组）：
++ *   0  SMAP_R_RXFIFO_FRAME_CNT   MAL 里还没被取走的帧数（硬件计数，不依赖中断）
++ *   1  SMAP_R_TXFIFO_FRAME_CNT   发送队列里还没发完的帧数
++ *   2  SMAP_R_EMAC3_INTR_STAT    现场读的 EMAC3 中断/错误标志
++ *   3  nb_dbg_emac3_seen         中断里清标志前累计 OR 到的 EMAC3 标志
++ *   4  nb_dbg_intr_cb            DEV9 中断回调次数
++ *   5  nb_dbg_intr_rxend         RXEND（收到帧）事件次数
++ *   6  nb_dbg_intr_emac3         EMAC3 事件次数
++ *   7  nb_dbg_rxintr             HandleRxIntr 调用次数
++ *   8  nb_dbg_rx_waiting         其中看到 FRAME_CNT>0 的次数
++ *   9  nb_dbg_rx_ok              真正交给 SMapLowLevelInput() 的帧数
++ *   10 nb_dbg_rx_bad             因 BD 错误标志被丢掉的帧数
++ *   11 nb_dbg_rx_badctrl         第一条被丢帧的 ctrl_stat
++ *   12 SMAP_R_EMAC3_MODE1        实际写进 MAC 的 MODE1（bit31=FDX, bit22=100M）
++ *   13 SMAP_R_EMAC3_TxMODE0      发送引擎状态（bit31 = GNP 挂着没发完 = 发不出去）
++ *   14 SMAP_R_RXFIFO_CTRL        RX FIFO 控制（DMAEN 位）
++ *   15 SMAP_R_TXFIFO_CTRL        TX FIFO 控制
++ *   16 本站 MAC 高位寄存器       —— 用来确认 smap_init() 真的写过地址
++ *   17 本站 MAC 低位寄存器
++ *   18 错误码（0..5，见下）—— 驱动直接拿这个数字上屏，免得在 netbox 侧
++ *      重复写一遍 EMAC3 的位定义。优先级：发帧错误 > 收帧错误 > BD 丢帧
++ *        0 = 没有任何错误标志
++ *        1 = 有帧被 BD 错误标志丢掉（还没到 EMAC3 计数）
++ *        2 = BAD_FCS（收到帧但 CRC 错 -> 双工/速率不符、PHY 没真 link、线材）
++ *        3 = RUNT_FRAME / SHORT_EVENT（收到的帧太短）
++ *        4 = BAD_FRAME / ALIGN_ERR / TOO_LONG / OVERRUN / 范围错误
++ *        5 = 发帧错误 DEAD_0 / DEAD_1 / DEAD_DEPEND / TX_ERR / SQE_ERR
++ *            （发送引擎报"死"= 帧根本没上线路）
++ *   19 保留（0）
++ *
++ * 读法（诊断时的用法）：
++ *   out[0]>0 而 out[9]==0  => 帧到了 MAL 但没被取走（中断没跑 / 被错误标志丢了）
++ *   out[10]>0              => 收到过帧、但带错误标志，看 out[18] 是哪一类
++ *   out[0]==0 且计数全零   => 一个帧都没到 PS2 的 MAC（盒子没回 / 发不出去）
++ *   out[13] 的 bit31 一直是 1 => 发送引擎卡住（帧根本没上线路）
++ * --------------------------------------------------------------------------- */
++int smap_get_rx_diag(unsigned int *out, int n)
++{
++    USE_SMAP_REGS;
++    USE_SMAP_EMAC3_REGS;
++    unsigned int IntrNow, ErrCode;
++
++    if (out == NULL || n < 1)
++        return -1;
++
++    /* 只读一次：INTR_STAT 在部分实现里是"读即清"，两次读会拿到不同的值。 */
++    IntrNow = SMAP_EMAC3_GET32(SMAP_R_EMAC3_INTR_STAT);
++
++    /* 把"这次现场"和"中断里清标志前累计到的"合起来判断错误类别 */
++    {
++        unsigned int e = IntrNow | nb_dbg_emac3_seen;
++
++        if (e & (SMAP_E3_INTR_DEAD_0 | SMAP_E3_INTR_DEAD_1 | SMAP_E3_INTR_DEAD_DEPEND |
++                 SMAP_E3_INTR_TX_ERR_0 | SMAP_E3_INTR_TX_ERR_1 | SMAP_E3_INTR_SQE_ERR_0))
++            ErrCode = 5;
++        else if (e & SMAP_E3_INTR_BAD_FCS)
++            ErrCode = 2;
++        else if (e & (SMAP_E3_INTR_RUNT_FRAME | SMAP_E3_INTR_SHORT_EVENT))
++            ErrCode = 3;
++        else if (e & (SMAP_E3_INTR_BAD_FRAME | SMAP_E3_INTR_ALIGN_ERR | SMAP_E3_INTR_TOO_LONG |
++                      SMAP_E3_INTR_OVERRUN | SMAP_E3_INTR_OUT_RANGE_ERR | SMAP_E3_INTR_IN_RANGE_ERR))
++            ErrCode = 4;
++        else if (nb_dbg_rx_bad != 0)
++            ErrCode = 1;
++        else
++            ErrCode = 0;
++    }
++
++#define PUT(i, v)                     \
++    do {                              \
++        if ((i) < (n))                \
++            out[(i)] = (unsigned int)(v); \
++    } while (0)
++
++    PUT(0, SMAP_REG8(SMAP_R_RXFIFO_FRAME_CNT));
++    PUT(1, SMAP_REG8(SMAP_R_TXFIFO_FRAME_CNT));
++    PUT(2, IntrNow);
++    PUT(3, nb_dbg_emac3_seen);
++    PUT(4, nb_dbg_intr_cb);
++    PUT(5, nb_dbg_intr_rxend);
++    PUT(6, nb_dbg_intr_emac3);
++    PUT(7, nb_dbg_rxintr);
++    PUT(8, nb_dbg_rx_waiting);
++    PUT(9, nb_dbg_rx_ok);
++    PUT(10, nb_dbg_rx_bad);
++    PUT(11, nb_dbg_rx_badctrl);
++    PUT(12, SMAP_EMAC3_GET32(SMAP_R_EMAC3_MODE1));
++    PUT(13, SMAP_EMAC3_GET32(SMAP_R_EMAC3_TxMODE0));
++    PUT(14, SMAP_REG8(SMAP_R_RXFIFO_CTRL));
++    PUT(15, SMAP_REG8(SMAP_R_TXFIFO_CTRL));
++    PUT(16, SMAP_EMAC3_GET32(SMAP_R_EMAC3_ADDR_HI));
++    PUT(17, SMAP_EMAC3_GET32(SMAP_R_EMAC3_ADDR_LO));
++    PUT(18, ErrCode);
++    PUT(19, 0);
++
++#undef PUT
++
++    return 0;
++}
++
++/* ---------------------------------------------------------------------------
++ * [NETBOX] v15：PHY 寄存器现场快照 + 链路模式码（netboxh 导出编号 7）
++ *
++ * 为什么要读 PHYSTS(0x10) 而不是只看 BMSR：
++ *   BMSR bit2 只是"链路状态"，分不出 10M/100M、半双工/全双工 —— 而
++ *   smap_init() 写进 EMAC3 MODE1 的是【硬编码的 100M 全双工】，InitPHY()
++ *   又只在"BMSR 显示没有链路"时才会被调用（SMAPStart 里的那行三元表达式）。
++ *   也就是说：链路如果一开始就是 up 的，速度和双工【从来没被协商/校正过】。
++ *   盒子的链路口如果是 10M 或半双工，这里就会露出一致性问题的证据。
++ *   PHYSTS 直接给出答案（bit0=link, bit1=1 表示 10M, bit2=1 表示全双工），
++ *   还顺带用 PHY ID 判断 PHY 到底有没有在应答（不响应时 MDIO 常读到 0xFFFF，
++ *   BMSR 的 link 位会是 1 —— 那正好是"链路 OK"的假阳性来源）。
++ *
++ * out[] 布局（u16，调用方传至少 10 个元素）：
++ *   0 BMCR  1 BMSR  2 PHYIDR1  3 PHYIDR2  4 ANAR  5 ANLPAR  6 ANER
++ *   7 PHYSTS(0x10)  8 10BTSCR(0x1A)  9 链路模式码
++ * 模式码：[9] = 0 unknown/none, 1 = 10M半, 2 = 10M全, 3 = 100M半, 4 = 100M全,
++ *           5 = PHY 不响应（ID 不匹配 -> 前面所有"链路 OK"都不可信）
++ * --------------------------------------------------------------------------- */
++int smap_get_phy_dump(unsigned int *out, int n)
++{
++    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
++    u16 sts, idr1, idr2;
++    int code;
++
++    if (out == NULL || n < 1)
++        return -1;
++
++    sts = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYSTS);
++    idr1 = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYIDR1);
++    idr2 = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYIDR2);
++
++    if (idr1 != SMAP_PHY_IDR1_VAL || (idr2 & SMAP_PHY_IDR2_MSK) != SMAP_PHY_IDR2_VAL)
++        code = 5; /* PHY 不响应 */
++    else if (!(sts & SMAP_PHY_STS_LINK))
++        code = 0; /* 真的有链路才算 */
++    else
++        code = (sts & SMAP_PHY_STS_10M) ? ((sts & SMAP_PHY_STS_FDX) ? 2 : 1)
++                                        : ((sts & SMAP_PHY_STS_FDX) ? 4 : 3);
++
++#define PUT16(i, v)                   \
++    do {                              \
++        if ((i) < (n))                \
++            out[(i)] = (unsigned int)(v); \
++    } while (0)
++
++    PUT16(0, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMCR));
++    PUT16(1, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR));
++    PUT16(2, idr1);
++    PUT16(3, idr2);
++    PUT16(4, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANAR));
++    PUT16(5, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANLPAR));
++    PUT16(6, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANER));
++    PUT16(7, sts);
++    PUT16(8, _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_10BTSCR));
++    PUT16(9, code);
++
++#undef PUT16
++
++    return code;
++}
+diff --git a/modules/network/smap-ingame/xfer.c b/modules/network/smap-ingame/xfer.c
+index 25111a0..d37bccb 100644
+--- a/modules/network/smap-ingame/xfer.c
++++ b/modules/network/smap-ingame/xfer.c
+@@ -23,6 +23,11 @@
+ 
+ extern struct SmapDriverData SmapDriverData;
+ 
++/* [NETBOX] v15 诊断计数器（定义在 smap.c，那边有详细说明）。
++ * 用途：把"帧到底走到这一步没有"记下来，交给 netbox 驱动上屏。
++ * 注意：收包中断里也在写，只做自增，不做读-改-写以外的依赖。 */
++extern unsigned int nb_dbg_rxintr, nb_dbg_rx_waiting, nb_dbg_rx_ok, nb_dbg_rx_bad, nb_dbg_rx_badctrl;
++
+ static inline int CopyToFIFOWithDMA(volatile u8 *smap_regbase, void *buffer, int length)
+ {
+     int NumBlocks;
+@@ -146,10 +151,13 @@ int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)
+     smap_regbase = SmapDrivPrivData->smap_regbase;
+ 
+     NumPacketsReceived = 0;
++    nb_dbg_rxintr++;
+ 
+     /*  Non-Sony: Workaround for the hardware BUG whereby the Rx FIFO of the MAL becomes unresponsive or loses frames when under load.
+         Check that there are frames to process, before accessing the BD registers. */
+     while (SMAP_REG8(SMAP_R_RXFIFO_FRAME_CNT) > 0) {
++        nb_dbg_rx_waiting++;
++
+         PktBdPtr = &rx_bd[SmapDrivPrivData->RxBDIndex % SMAP_BD_MAX_ENTRY];
+         ctrl_stat = PktBdPtr->ctrl_stat;
+         if (!(ctrl_stat & SMAP_BD_RX_EMPTY)) {
+@@ -158,10 +166,19 @@ int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)
+             pointer = PktBdPtr->pointer;
+ 
+             if (ctrl_stat & (SMAP_BD_RX_INRANGE | SMAP_BD_RX_OUTRANGE | SMAP_BD_RX_FRMTOOLONG | SMAP_BD_RX_BADFCS | SMAP_BD_RX_ALIGNERR | SMAP_BD_RX_SHORTEVNT | SMAP_BD_RX_RUNTFRM | SMAP_BD_RX_OVERRUN)) {
++                /* [NETBOX] v15：帧到了、但带以太网收帧错误标志，这里【原本完全静默】——
++                 * 谁也不知道"帧到了但全是坏的"和"根本没有帧"的区别。
++                 * 前者是双工/速率不符、PHY 没真 link、线材/接口坏这类物理层问题，
++                 * 后者是盒子的应答根本没上线。记账后就能分开。 */
++                nb_dbg_rx_bad++;
++                if (nb_dbg_rx_badctrl == 0)
++                    nb_dbg_rx_badctrl = ctrl_stat;
+             } else {
+                 if ((pbuf = pbuf_alloc(PBUF_RAW, LengthRounded, PBUF_POOL)) != NULL) {
+                     CopyFromFIFO(SmapDrivPrivData->smap_regbase, pbuf->payload, length, pointer);
+ 
++                    nb_dbg_rx_ok++;
++
+                     // Inform ps2ip that we've received data.
+                     SMapLowLevelInput(pbuf);
+ 
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
 index b181dec..153ed13 100644
 --- a/src/bdmsupport.c
@@ -2522,10 +2991,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..a2a2dc6 100644
+index 1054228..91aff4e 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,124 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,147 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -2549,28 +3018,39 @@ index 1054228..a2a2dc6 100644
 +    //   netbox LOAD REFUSED        -> 第 2 关没过：IOP 拒绝加载 netbox.irx
 +    //                                 （库名/版本/函数号对不上，或导入解析不到）
 +    //   driver START FAILED        -> 装上了但 _start() 早退
-+    //   FAIL stage=N ...           -> 驱动自检失败。它【故意不驻留】（注册了 BD
-+    //                                 设备也读不出来，不如直接报），并把失败位置
-+    //                                 编进返回值（v14）：
-+    //                                     ret = 1000000 + stage*10000 + link*5000 + hook
-+    //                                 stage 含义（与驱动里 NB_STAGE_* 一致）：
-+    //                                   1 钩子自检失败（netboxh 导入是空桩）
-+    //                                   2 ★PHY 没有链路★（网线/对端，最常见）
-+    //                                   3 MAC 全零（smap_init 没跑完）
-+    //                                   4 一帧都发不出去（SmapIsInitialized=0）
-+    //                                   5 发得出去但收不到任何回包（hook=0）
-+    //                                   6 收到回包但 IDENTIFY 对不上
-+    //                                   7 读 LBA0 失败
-+    //                                   8 LBA0 读到了但没有 55AA 引导签名
-+    //                                 link = 失败那一刻 PHY 链路是否已建立。
-+    //                                 hook = 收包钩子被调用的次数，把"线/盒子"
-+    //                                 和"协议层"两类问题分开。
-+    //   resident (raw SMAP v14)    -> 自检全过（钩子自检 + 链路自检 + 真读 LBA0
++    //   FAIL ... (v15)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
++    //                                 设备也读不出来，不如直接报），并把失败现场
++    //                                 整串编进返回值（v15）：
++    //                                     ret = 1000000 + stage*100000 + lk*10000
++    //                                                 + rx*1000 + e*100 + hook
++    //                                 stage（名字直接印在标签上，与驱动 NB_STAGE_* 一致）:
++    //                                   hook    钩子自检失败（netboxh 导入是空桩）
++    //                                   link    ★PHY 没有链路★（网线/对端，最常见）
++    //                                   mac     MAC 全零（smap_init 没跑完）
++    //                                   tx      一帧都发不出去（SmapIsInitialized=0）
++    //                                   noreply 发得出去但收不到任何回包
++    //                                   identify 收到回包但 IDENTIFY 对不上
++    //                                   read0   读 LBA0 失败
++    //                                   bootsig LBA0 读到了但没有 55AA 引导签名
++    //                                 lk = PHY 现场链路模式码：
++    //                                   0 无链路 / 1 10M半 / 2 10M全 /
++    //                                   3 100M半 / 4 100M全 / 5 PHY 不响应
++    //                                 rx = MAL 收到过帧的摘要（0 = 一帧都没到过 PS2）
++    //                                 e  = 收帧错误类别（0 无错 / 1 BD 丢帧 / 2 BAD_FCS
++    //                                      / 3 短帧 / 4 其它收帧错 / 5 发帧错误）
++    //                                 hook = 钩子被调用次数（0..99）
++    //                                 ★ 关键读法：lx/rx/e 这三个一起看就能把
++    //                                   "盒子没回话"和"回了但被以太网层丢掉"分开。
++    //   resident (raw SMAP v15)    -> 自检全过（钩子自检 + 链路自检 + 真读 LBA0
 +    //                                 + 55AA 校验），BD 设备已注册，mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
-+        static char netboxStatus[128];
-+        int stage, links, hooks;
++        static char netboxStatus[160];
++        /* 与驱动 NB_STAGE_* 一一对应；下标 1..8 有效。 */
++        static const char *stageName[] = {
++            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig"
++        };
++        int stage = 0, lk = 0, rx = 0, e = 0, hook = 0;
 +
 +        if (!gEnableNetBox)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox Network: OFF");
@@ -2588,32 +3068,44 @@ index 1054228..a2a2dc6 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus),
 +                     "NetBox: ON, smap ok, netbox LOAD REFUSED (id=%d)", gNetBoxLoadID);
 +        else if (gNetBoxStartRC >= 1000000) {
-+            /* v14 编码：1000000 + stage*10000 + link*5000 + hook
-+             * （stage<=8、hook<=4999，所以 stage 那一档和 link 那一档互不干扰） */
-+            stage = (gNetBoxStartRC / 10000) % 100;
-+            links = (gNetBoxStartRC / 5000) % 2;
-+            hooks = gNetBoxStartRC % 5000;
++            /* v15 编码：1000000 + stage*100000 + lk*10000 + rx*1000 + e*100 + hook
++             * 每档宽度与驱动侧一致（stage<=8、lk<=5、rx<=9、e<=5、hook<=99）。 */
++            int v = gNetBoxStartRC - 1000000;
 +
-+            if (stage == 2)
-+                /* 这一关是 v14 新增的最关键判据：PHY 的 BMSR bit2 没置位，
-+                 * 也就是网线上根本没有链路。此时"发送成功/失败"都没意义，
-+                 * 盒子什么都收不到，硬盘自然一动不动。 */
++            stage = v / 100000; v %= 100000;
++            lk    = v / 10000;  v %= 10000;
++            rx    = v / 1000;   v %= 1000;
++            e     = v / 100;    v %= 100;
++            hook  = v;
++
++            if (stage < 1 || stage > 8)
++                stage = 0; /* 防越界，stageName[0] = "?" */
++
++            if (stage == 2 && lk == 5)
++                /* PHY 的 MDIO 读回 0xFFFF 或 ID 不匹配：PHY 根本没在应答。
++                 * 这种情况下 BMSR 的 link 位会读成 1 —— 正是"链路 OK"假阳性的来源。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL LINK DOWN - check cable (v14)");
++                         "NetBox: FAIL PHY no response (mdio stuck) - check cable/PHY (v15)");
++            else if (stage == 2)
++                /* v14 新增的最关键判据：PHY 的 PHYSTS link 位没置位，
++                 * 也就是网线上根本没有链路。此时"发送成功/失败"都没意义。 */
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL LINK DOWN - check cable (v15)");
 +            else if (stage == 1)
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL rx hook not installed (v14)");
-+            else if (links)
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL stage=%d hook=%d link ok (v14)", stage, hooks);
++                         "NetBox: FAIL rx hook not installed (v15)");
 +            else
++                /* 这条是主诊断行：stage 名字 + 链路模式 + 收帧摘要 + 错误类别 + 钩子数
++                 * 例：NetBox: FAIL noreply lk=1 rx=0 e=0 hk=0 (v15)
++                 *     -> 链路是 10M 半双工（盒子那头是 10M 口？），一个帧都没到过 PS2。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL stage=%d hook=%d link down (v14)", stage, hooks);
++                         "NetBox: FAIL %s lk=%d rx=%d e=%d hk=%d (v15)",
++                         stageName[stage], lk, rx, e, hook);
 +        } else if (gNetBoxStartRC != 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v14)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v15)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
