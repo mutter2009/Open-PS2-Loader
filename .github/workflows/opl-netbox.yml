@@ -62,6 +62,18 @@ jobs:
             echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
             strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
             echo
+            echo "=== [v12 关键证据] SMAP 原始帧钩子的接线是否真的编进了二进制 ==="
+            echo "--- smap-ingame 的导出表必须含库名 netboxh ---"
+            ls -la modules/network/smap-ingame/smap.irx 2>&1
+            echo "netboxh 出现次数: $(grep -a -c 'netboxh' modules/network/smap-ingame/smap.irx 2>&1)"
+            echo "--- netbox.irx 必须【导入】 netboxh（否则 IOP 装载器会拒绝加载它）---"
+            ls -la modules/netbox/netbox.irx 2>&1
+            echo "netboxh 出现次数: $(grep -a -c 'netboxh' modules/netbox/netbox.irx 2>&1)"
+            echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 已全部移除）---"
+            echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
+            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
+            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
+            echo
             echo "=== 产物清单 ==="
             ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
           } > verify.txt 2>&1
