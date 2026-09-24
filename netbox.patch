@@ -283,10 +283,10 @@ index 0000000..6073eca
 +include $(PS2SDK)/samples/Makefile.iopglobal
 diff --git a/modules/netbox/imports.lst b/modules/netbox/imports.lst
 new file mode 100644
-index 0000000..a96020d
+index 0000000..0dbd7f3
 --- /dev/null
 +++ b/modules/netbox/imports.lst
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,65 @@
 +bdm_IMPORTS_start
 +I_bdm_connect_bd
 +I_bdm_disconnect_bd
@@ -300,8 +300,11 @@ index 0000000..a96020d
 +I_lwip_recv
 +I_lwip_setsockopt
 +I_inet_addr
-+# 只有 NETBOX_USE_RAWHOOK（自编译 ps2ip）时才需要：
-+# I_ps2ip_set_raw_hook
++/* ps2ip_set_raw_hook is NOT imported on purpose: it only exists in our
++   self-built SMSTCPIP, not in ps2ip-nm.irx (ps2sdk 2.6), where slot 42 is
++   a different function. Do not add it back unless NETBOX_USE_RAWHOOK is on.
++   NOTE: this file is concatenated verbatim into a .c file by the ps2sdk
++   iopglobal Makefile, so '#' comments are illegal here -- use C comments. */
 +ps2ip_IMPORTS_end
 +
 +stdio_IMPORTS_start
@@ -336,6 +339,11 @@ index 0000000..a96020d
 +thsemap_IMPORTS_end
 +
 +thbase_IMPORTS_start
++/* CreateThread / StartThread 是 socket 收包线程（nb_rx_thread）必需的。
++   v11 漏了这两项 —— 静态审计 tools/imports_audit.py 抓出来的，
++   漏掉会在 IRX 链接阶段报 undefined reference。 */
++I_CreateThread
++I_StartThread
 +I_DelayThread
 +thbase_IMPORTS_end
 +
@@ -494,10 +502,10 @@ index 0000000..e2b96dc
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..458d070
+index 0000000..1eaacd1
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,939 @@
+@@ -0,0 +1,942 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -1232,7 +1240,7 @@ index 0000000..458d070
 +    /* 能进这里说明 OPL 已经在尝试挂载并读盘了 */
 +    if (nreads == 0) {
 +        char msg[80];
-+        sprintf(msg, "first read lba=%d count=%d", (u32)sector, (int)count);
++        sprintf(msg, "first read lba=%u count=%d", (unsigned int)sector, (int)count);
 +        nb_diag(msg);
 +    }
 +    nreads++;
@@ -1244,8 +1252,8 @@ index 0000000..458d070
 +            /* 只报前 3 次避免刷屏；带上计数区分"根本没收到帧"和"帧不对" */
 +            if (nfails < 3) {
 +                char msg[112];
-+                sprintf(msg, "read FAIL lba=%d n=%d ret=%d hook=%d rx=%d",
-+                        (u32)sector, (int)n, r, g_hook_calls, g_rx_frames);
++                sprintf(msg, "read FAIL lba=%u n=%d ret=%d hook=%d rx=%d",
++                        (unsigned int)sector, (int)n, r, g_hook_calls, g_rx_frames);
 +                nb_diag(msg);
 +            }
 +            nfails++;
@@ -1412,12 +1420,14 @@ index 0000000..458d070
 +        /* 兜底：盒子内置盘常见值。注意：走到这里说明盒子没应答，
 +         * 读盘大概率会失败（OPL 会因为 fileXioDopen 失败而不显示设备）。 */
 +        sectors = 1953525168ULL; /* 1TB */
-+        printf("netbox: 盒子无应答，使用兜底容量 %d 个扇区\n", (u32)(sectors & 0xFFFFFFFF));
++        printf("netbox: 盒子无应答，使用兜底容量 %u 个扇区\n",
++               (unsigned int)(sectors & 0xFFFFFFFF));
 +        nb_diag("IDENTIFY failed -> fallback 1TB (reads will likely fail)");
 +    } else {
 +        char msg[80];
-+        sprintf(msg, "IDENTIFY ok: %d sectors (%d MB)",
-+                (u32)(sectors & 0xFFFFFFFF), (u32)((sectors >> 11) / 1024));
++        sprintf(msg, "IDENTIFY ok: %u sectors (%u MB)",
++                (unsigned int)(sectors & 0xFFFFFFFF),
++                (unsigned int)((sectors >> 11) / 1024));
 +        nb_diag(msg);
 +    }
 +    g_netbox_bd.sectorCount = sectors;
@@ -1429,8 +1439,9 @@ index 0000000..458d070
 +        nb_diag(msg);
 +    }
 +
-+    printf("netbox: 容量 %d 个扇区 (%d MB)\n",
-+           (u32)(sectors & 0xFFFFFFFF), (u32)((sectors >> 11) / 1024));
++    printf("netbox: 容量 %u 个扇区 (%u MB)\n",
++           (unsigned int)(sectors & 0xFFFFFFFF),
++           (unsigned int)((sectors >> 11) / 1024));
 +
 +    bdm_connect_bd(&g_netbox_bd);
 +    nb_diag("bdm_connect_bd() done -> resident");
