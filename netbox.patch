@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..0f17908
+index 0000000..9d01900
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,153 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,7 +101,7 @@ index 0000000..0f17908
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v15 关键证据] 寄存器级收发现场诊断是否真的编进了二进制 ==="
-+            echo "--- 版本串必须是 v1.5 ... reg-level rx diag（看到它就是 v15，不是 v14）---"
++            echo "--- 版本串必须是 v1.6 ... PHY gate diag（看到 v1.6 才是本轮；v1.5=上一轮）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v15 新增符号 6=smap_get_rx_diag / 7=smap_get_phy_dump（查未 strip 的 ELF）---"
 +            echo "smap ELF   smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -118,6 +118,19 @@ index 0000000..0f17908
 +            echo "rxq= 诊断串          : $(grep -a -c 'rxq=' modules/netbox/netbox.irx 2>&1)"
 +            echo "phy bmsr= 诊断串     : $(grep -a -c 'phy bmsr=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数 : $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
++            echo
++            echo "=== [v16 关键证据] PHY 身份诊断闸是否真的编进去了 ==="
++            echo "--- 这三条格式串就是 v16 新增的 PHY 闸：---"
++            echo "PHY gate FAILED 串  : $(grep -a -c 'PHY gate FAILED' modules/netbox/netbox.irx 2>&1)"
++            echo "PHY identity 诊断串 : $(grep -a -c 'PHY identity unusable' modules/netbox/netbox.irx 2>&1)"
++            echo "--- 版本串里的 v1.6 / PHY gate diag 标记（两条都应 >=1）---"
++            echo "v1.6 标记           : $(grep -a -c 'v1.6' modules/netbox/netbox.irx 2>&1)"
++            echo "PHY gate diag 标记  : $(grep -a -c 'PHY gate diag' modules/netbox/netbox.irx 2>&1)"
++            echo "--- gui.c 侧的 v16 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
++            echo "OPL.elf: 'NO PHY (mdio floats FFFF)' : $(grep -a -c 'NO PHY (mdio floats FFFF)' opl.elf 2>&1)"
++            echo "OPL.elf: 'PHY not DP83846'           : $(grep -a -c 'PHY not DP83846' opl.elf 2>&1)"
++            echo "OPL.elf: 'PHY mdio ALL ZERO'         : $(grep -a -c 'PHY mdio ALL ZERO' opl.elf 2>&1)"
++            echo "（三条都应 >=1；若为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
@@ -599,10 +612,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..74878e5
+index 0000000..aafd14a
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,1207 @@
+@@ -0,0 +1,1328 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -1027,6 +1040,43 @@ index 0000000..74878e5
 +/* 返回值编码的基址：减去它就得到 stage/link/hook。见上方说明。 */
 +#define NB_FAIL_BASE      1000000
 +
++/* ------------------------------------------------------------------
++ * [v16] PHY 身份诊断包 —— 只用在"PHY 是谁都认不出来"这条路上。
++ *
++ * 起因：v15 实机报回 "FAIL noreply lk=5 rx=0 e=0 hk=0"。
++ * lk=5 的定义是"PHY 的 ID 读回来不匹配 DP83846"，但这【一句话盖住了
++ * 三种完全不同的病】，而三种病的修法毫不相干：
++ *
++ *   ① MDIO 操作压根没完成 —— _smap_read_phy() 的轮询超时后【返回 0】
++ *      => PHYIDR1/PHYIDR2 全读成 0x0000。说明 EMAC3 的 STA_CTRL 没在跑，
++ *         也就是这块 SMAP 硬件根本没被我们用上。
++ *   ② MDIO 完成了，但 MDIO 数据线悬空 —— 读回 0xFFFF（全 1）
++ *      => 这个地址上【没有 PHY 芯片】。要么这一路网口不是我们驱动的那个，
++ *         要么主机这边就不存在这个网卡。
++ *   ③ MDIO 完成、ID 也是合法的，只是不是 National DP83846
++ *      => PHY 在、链路很可能也是好的，是【我的判据太严】。
++ *         注意 OPL 上游的 InitPHY() 对 ID 不匹配的处理是"跳过 DP83846
++ *         专用的几条 workaround，继续往下走并 return 0"——它并不因此
++ *         判失败。只有我把 ID 不匹配升级成了致命错误。
++ *
++ * 为什么不能沿用 v15 那套十进制编码：它是 5 个字段、每字段只有 1 位
++ * 十进制，装不下 16 位的 PHYIDR1。所以这条路上改用【位打包】，由 EE 侧
++ * src/gui.c 解回人话。位布局（bit31 必须为 0，否则返回值变成负数）：
++ *
++ *   bit30     = 1                  标记：这是 v16 诊断包
++ *   bit27..29 = code  (0..7)       PHY 身份分类，见 NB_PHY_*
++ *   bit24..26 = stage (1..7)       哪个关卡报的
++ *   bit8..23  = PHYIDR1 原值 (16b)
++ *   bit0..7   = PHYIDR2 >> 8       高字节：OUI 低 6 位 + model 高 2 位
++ * ------------------------------------------------------------------ */
++#define NB_V16_MARK     0x40000000
++
++#define NB_PHY_ID_OK    0 /* 没用到：ID 匹配时不走这条路（仍走 v15 那套） */
++#define NB_PHY_ALL_ZERO 1 /* ① PHYIDR1/2 全 0x0000 —— MDIO 超时没完成   */
++#define NB_PHY_ALL_FFFF 2 /* ② 全 0xFFFF —— 数据线悬空，这个地址上没有 PHY */
++#define NB_PHY_OTHER    3 /* ③ 两个都是合法值但不匹配 DP83846 —— 判据太严 */
++#define NB_PHY_MIXED    4 /* 其他（一个 0 一个非 0 之类）—— 需要人看原值 */
++
 +/*
 + * [v15] 失败现场快照。所有值都来自「读寄存器 / 读计数器」，无副作用。
 + *
@@ -1060,6 +1110,65 @@ index 0000000..74878e5
 +
 +    g_lk_code = smap_get_phy_dump(g_phy, 10);
 +    smap_get_rx_diag(g_rxd, 20);
++}
++
++/* ------------------------------------------------------------------
++ * [v16] PHY 身份诊断 —— 见文件上方 NB_V16_MARK 那段说明。
++ * ------------------------------------------------------------------ */
++
++static int g_phy_code = NB_PHY_ID_OK;
++
++/* 把 code/stage/PHYIDR1/PHYIDR2 打进一个 int（位布局见 NB_V16_MARK 注释）。
++ * 注意 bit31 恒为 0：EE 侧 gNetBoxStartRC 是 int，置了符号位就变负数，
++ * gui.c 的分支判断会全乱。 */
++static int nb_phy_pack(int stage, int code, unsigned int idr1, unsigned int idr2)
++{
++    unsigned int v;
++
++    v = (unsigned int)NB_V16_MARK
++        | ((((unsigned int)code) & 7u) << 27)
++        | ((((unsigned int)stage) & 7u) << 24)
++        | ((idr1 & 0xFFFFu) << 8)
++        | ((idr2 >> 8) & 0xFFu);
++
++    return (int)v;
++}
++
++/*
++ * PHY 身份自检（v16 新增，放在链路自检【之前】）。
++ *   返回 1 = PHY 认出来了，可以继续判链路；
++ *   返回 0 = PHY 身份不明，调用方应当立刻用 nb_phy_pack() 报出去。
++ *
++ * 为什么不能只看 smap_get_link_status()：它读的是 BMSR 的 link 位，而
++ * PHY 不响应时 MDIO 读回 0xFFFF —— 那一位恰好是 1。于是"根本没有 PHY"
++ * 会被读成"链路正常"，stage 2 一路放行，一直到 stage 5 才以"盒子不回话"
++ * 的形式暴露出来。这正是 v15 之前每一轮都在踩的坑。
++ */
++static int nb_phy_gate(void)
++{
++    unsigned int idr1, idr2;
++    int rc;
++
++    memset(g_phy, 0, sizeof(g_phy));
++    rc = smap_get_phy_dump(g_phy, 10); /* rc==5 就是"ID 不匹配" */
++    idr1 = g_phy[2] & 0xFFFFu;
++    idr2 = g_phy[3] & 0xFFFFu;
++
++    if (rc != 5) {
++        g_phy_code = NB_PHY_ID_OK;
++        return 1;
++    }
++
++    if (idr1 == 0xFFFFu && idr2 == 0xFFFFu)
++        g_phy_code = NB_PHY_ALL_FFFF; /* ② 悬空 */
++    else if (idr1 == 0u && idr2 == 0u)
++        g_phy_code = NB_PHY_ALL_ZERO; /* ① MDIO 超时 */
++    else if (idr1 == 0u || idr2 == 0u)
++        g_phy_code = NB_PHY_MIXED; /* 半读回来，需要看原值 */
++    else
++        g_phy_code = NB_PHY_OTHER; /* ③ 合法但非 DP83846 */
++
++    return 0;
 +}
 +
 +/*
@@ -1640,7 +1749,7 @@ index 0000000..74878e5
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.5 (raw SMAP + reg-level rx diag)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.6 (raw SMAP + PHY gate diag)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -1685,6 +1794,31 @@ index 0000000..74878e5
 +     * 链路不通时静默发帧 = 盒子永远收不到请求 = 硬盘一动不动 + 菜单空白，
 +     * 而驱动照样一路跑到 resident（v12 的整个玄学都在这里）。
 +     */
++    /*
++     * 2a) 【v16 新增】PHY 身份自检 —— 必须排在链路自检前面。
++     *
++     * 上一轮 v15 报回的是 "stage=5 lk=5"：链路那一关放行了，一直到
++     * 握手没人应答才失败，而失败现场的 lk=5 又只说"ID 不匹配"。
++     * 问题在于链路那一关用的是 BMSR 的 link 位，PHY 不响应时 MDIO
++     * 读回 0xFFFF、link 位恰好是 1 —— 于是"没有 PHY"被读成"链路正常"。
++     *
++     * 所以先把"PHY 到底是谁"问清楚。三种结果（全 0 / 全 F / 合法但非
++     * DP83846）对应三种完全不同的修法，见文件上方 NB_V16_MARK 的说明。
++     * 认不出来就【立刻在这里失败】，并用位打包把 PHYIDR1/PHYIDR2 的原值
++     * 送出去 —— 不要再让它一路混到 stage 5 变成"盒子不回话"。
++     */
++    if (!nb_phy_gate()) {
++        char msg[128];
++        sprintf(msg, "PHY gate FAILED code=%d idr1=%04x idr2=%04x bmsr=%04x sts=%04x",
++                g_phy_code, g_phy[2] & 0xFFFF, g_phy[3] & 0xFFFF,
++                g_phy[1] & 0xFFFF, g_phy[7] & 0xFFFF);
++        nb_diag(msg);
++        printf("netbox: PHY gate FAILED code=%d idr1=0x%04x idr2=0x%04x (not resident)\n",
++               g_phy_code, g_phy[2] & 0xFFFF, g_phy[3] & 0xFFFF);
++        smap_set_rx_hook(NULL); /* 模块马上要被卸掉，钩子必须先摘 */
++        return nb_phy_pack(NB_STAGE_LINK, g_phy_code, g_phy[2], g_phy[3]);
++    }
++
 +    if (!nb_wait_link()) {
 +        char msg[96];
 +        sprintf(msg, "PHY link DOWN (bmsr=0x%04x) -> 帧发不出去, 先查网线/对端",
@@ -2991,10 +3125,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..91aff4e 100644
+index 1054228..9865bd6 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,147 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,200 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -3018,9 +3152,10 @@ index 1054228..91aff4e 100644
 +    //   netbox LOAD REFUSED        -> 第 2 关没过：IOP 拒绝加载 netbox.irx
 +    //                                 （库名/版本/函数号对不上，或导入解析不到）
 +    //   driver START FAILED        -> 装上了但 _start() 早退
-+    //   FAIL ... (v15)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
++    //   FAIL ... (v16)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
 +    //                                 设备也读不出来，不如直接报），并把失败现场
-+    //                                 整串编进返回值（v15）：
++    //                                 整串编进返回值：
++    //                                 [格式 A · v15 五字段，仍用于非 PHY 的失败]
 +    //                                     ret = 1000000 + stage*100000 + lk*10000
 +    //                                                 + rx*1000 + e*100 + hook
 +    //                                 stage（名字直接印在标签上，与驱动 NB_STAGE_* 一致）:
@@ -3041,7 +3176,10 @@ index 1054228..91aff4e 100644
 +    //                                 hook = 钩子被调用次数（0..99）
 +    //                                 ★ 关键读法：lx/rx/e 这三个一起看就能把
 +    //                                   "盒子没回话"和"回了但被以太网层丢掉"分开。
-+    //   resident (raw SMAP v15)    -> 自检全过（钩子自检 + 链路自检 + 真读 LBA0
++    //                                 [格式 B · v16 PHY 身份诊断包，见下面 0x40000000 分支]
++    //                                   只在"PHY 的 ID 认不出来"时出现，把含糊的
++    //                                   lk=5 拆成三种病，并带上 PHYIDR1/PHYIDR2 原值。
++    //   resident (raw SMAP v16)    -> 自检全过（钩子自检 + PHY 身份 + 链路 + 真读 LBA0
 +    //                                 + 55AA 校验），BD 设备已注册，mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
@@ -3067,7 +3205,55 @@ index 1054228..91aff4e 100644
 +        else if (gNetBoxLoadID < 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus),
 +                     "NetBox: ON, smap ok, netbox LOAD REFUSED (id=%d)", gNetBoxLoadID);
-+        else if (gNetBoxStartRC >= 1000000) {
++        else if (gNetBoxStartRC & 0x40000000) {
++            /* [v16] PHY 身份诊断包。位布局与 modules/netbox/netbox_bd.c 的
++             * NB_V16_MARK 注释严格对应：
++             *   bit27..29 code  / bit24..26 stage / bit8..23 PHYIDR1 / bit0..7 PHYIDR2>>8
++             *
++             * ★ 这个分支必须排在下面的 ">= 1000000" 之前：打包值首字节是
++             *   0x40，即 1073741824，比 1000000 大得多，否则会被 v15 那套
++             *   十进制解码吃掉、解出一堆垃圾数字。
++             *
++             * 它只在"PHY 的 ID 认不出来"这条路上出现，作用是把 v15 里
++             * 含糊的 lk=5 拆成三种修法完全不同的病：
++             *   ALL ZERO -> MDIO 轮询超时，操作根本没完成（EMAC3 没在跑）
++             *   NO PHY   -> MDIO 数据线悬空 0xFFFF，这个地址上没有 PHY
++             *   not DP83846 -> PHY 在、ID 也合法，是判据太严（上游并不这么判）
++             * 后两种情况下 id1/id2 就是 PHYIDR1 与 PHYIDR2 的高字节原值。 */
++            int code = (gNetBoxStartRC >> 27) & 7;
++            unsigned int idr1 = ((unsigned int)gNetBoxStartRC >> 8) & 0xFFFFu;
++            unsigned int idr2hi = (unsigned int)gNetBoxStartRC & 0xFFu;
++
++            stage = (gNetBoxStartRC >> 24) & 7;
++            if (stage < 1 || stage > 8)
++                stage = 0;
++
++            switch (code) {
++            case 1: /* PHYIDR 全 0x0000 */
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL %s PHY mdio ALL ZERO id1=0000 (v16)", stageName[stage]);
++                break;
++            case 2: /* PHYIDR 全 0xFFFF —— 数据线悬空 */
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL %s NO PHY (mdio floats FFFF) (v16)", stageName[stage]);
++                break;
++            case 3: /* 合法 ID 但不是 DP83846 */
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL %s PHY not DP83846 id1=%04X id2=%02X (v16)",
++                         stageName[stage], idr1, idr2hi);
++                break;
++            case 4: /* 一个 0 一个非 0：需要看原值 */
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL %s PHY mdio mixed id1=%04X id2=%02X (v16)",
++                         stageName[stage], idr1, idr2hi);
++                break;
++            default:
++                snprintf(netboxStatus, sizeof(netboxStatus),
++                         "NetBox: FAIL %s phy code=%d id1=%04X id2=%02X (v16)",
++                         stageName[stage], code, idr1, idr2hi);
++                break;
++            }
++        } else if (gNetBoxStartRC >= 1000000) {
 +            /* v15 编码：1000000 + stage*100000 + lk*10000 + rx*1000 + e*100 + hook
 +             * 每档宽度与驱动侧一致（stage<=8、lk<=5、rx<=9、e<=5、hook<=99）。 */
 +            int v = gNetBoxStartRC - 1000000;
@@ -3082,30 +3268,31 @@ index 1054228..91aff4e 100644
 +                stage = 0; /* 防越界，stageName[0] = "?" */
 +
 +            if (stage == 2 && lk == 5)
-+                /* PHY 的 MDIO 读回 0xFFFF 或 ID 不匹配：PHY 根本没在应答。
-+                 * 这种情况下 BMSR 的 link 位会读成 1 —— 正是"链路 OK"假阳性的来源。 */
++                /* ★v16 之后这一支已【不可达】：lk==5（PHY 的 ID 认不出来）
++                 * 现在会被上面的 v16 打包分支接走，并带上 PHYIDR1/PHYIDR2
++                 * 的原值。保留它只是兜底（万一打包值恰好落进 v15 的区间）。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL PHY no response (mdio stuck) - check cable/PHY (v15)");
++                         "NetBox: FAIL %s PHY no response (mdio stuck) (v16)", stageName[stage]);
 +            else if (stage == 2)
-+                /* v14 新增的最关键判据：PHY 的 PHYSTS link 位没置位，
-+                 * 也就是网线上根本没有链路。此时"发送成功/失败"都没意义。 */
++                /* PHY 身份已经过了 v16 那道闸，所以这里的"没链路"是真的没链路。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL LINK DOWN - check cable (v15)");
++                         "NetBox: FAIL LINK DOWN - check cable (v16)");
 +            else if (stage == 1)
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL rx hook not installed (v15)");
++                         "NetBox: FAIL rx hook not installed (v16)");
 +            else
 +                /* 这条是主诊断行：stage 名字 + 链路模式 + 收帧摘要 + 错误类别 + 钩子数
-+                 * 例：NetBox: FAIL noreply lk=1 rx=0 e=0 hk=0 (v15)
-+                 *     -> 链路是 10M 半双工（盒子那头是 10M 口？），一个帧都没到过 PS2。 */
++                 * 例：NetBox: FAIL noreply lk=1 rx=0 e=0 hk=0 (v16)
++                 *     -> 链路是 10M 半双工（盒子那头是 10M 口？），一个帧都没到过 PS2。
++                 * （编码格式仍是 v15 那套 5 字段，只有打包的 PHY 诊断包是新格式。） */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s lk=%d rx=%d e=%d hk=%d (v15)",
++                         "NetBox: FAIL %s lk=%d rx=%d e=%d hk=%d (v16)",
 +                         stageName[stage], lk, rx, e, hook);
 +        } else if (gNetBoxStartRC != 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v15)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v16)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
