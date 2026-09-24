@@ -72,13 +72,23 @@ jobs:
             echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 已全部移除）---"
             echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
             echo
-            echo "=== [v13 关键证据] 自检与失败码是否真的编进了二进制 ==="
-            echo "--- 版本串必须是 v1.3 ... + selftest（看到它就是 v13，不是 v12）---"
+            echo "=== [v14 关键证据] 新增的两个 netboxh 导出是否真的编进了二进制 ==="
+            echo "--- 版本串必须是 v1.4 ... link/hook selftest（看到它就是 v14）---"
             strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
-            echo "--- v13 自检相关串（stage 码由 _start 返回值携带，这里校验诊断串）---"
-            echo "selftest 出现次数  : $(grep -a -c 'selftest' modules/netbox/netbox.irx 2>&1)"
+            echo "--- netboxh 库必须同时出现在 smap.irx（导出）和 netbox.irx（导入）---"
+            echo "smap.irx   netboxh  : $(grep -a -c 'netboxh' modules/network/smap-ingame/smap.irx 2>&1)"
+            echo "netbox.irx netboxh  : $(grep -a -c 'netboxh' modules/netbox/netbox.irx 2>&1)"
+            echo "--- v14 新增符号（4=smap_get_link_status / 5=smap_get_rx_hook）---"
+            echo "smap.irx   smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/network/smap-ingame/smap.irx 2>&1)"
+            echo "smap.irx   smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/network/smap-ingame/smap.irx 2>&1)"
+            echo "netbox.irx smap_get_link_status : $(grep -a -c 'smap_get_link_status' modules/netbox/netbox.irx 2>&1)"
+            echo "netbox.irx smap_get_rx_hook     : $(grep -a -c 'smap_get_rx_hook' modules/netbox/netbox.irx 2>&1)"
+            echo "--- v14 自检相关串 ---"
+            echo "link DOWN 串     : $(grep -a -c 'PHY link DOWN' modules/netbox/netbox.irx 2>&1)"
+            echo "hook selftest 串 : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
             echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-            echo "SMAP tx ready 出现次数: $(grep -a -c 'SMAP tx ready' modules/netbox/netbox.irx 2>&1)"
+            echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 起已全部移除）---"
+            echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
             echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
             grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
             echo
