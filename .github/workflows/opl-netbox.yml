@@ -71,6 +71,14 @@ jobs:
             echo "netboxh 出现次数: $(grep -a -c 'netboxh' modules/netbox/netbox.irx 2>&1)"
             echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 已全部移除）---"
             echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
+            echo
+            echo "=== [v13 关键证据] 自检与失败码是否真的编进了二进制 ==="
+            echo "--- 版本串必须是 v1.3 ... + selftest（看到它就是 v13，不是 v12）---"
+            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
+            echo "--- v13 自检相关串（stage 码由 _start 返回值携带，这里校验诊断串）---"
+            echo "selftest 出现次数  : $(grep -a -c 'selftest' modules/netbox/netbox.irx 2>&1)"
+            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
+            echo "SMAP tx ready 出现次数: $(grep -a -c 'SMAP tx ready' modules/netbox/netbox.irx 2>&1)"
             echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
             grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
             echo
