@@ -127,15 +127,24 @@ index d02af90..587fc44 100644
  	$(BIN2C) $< $@ $(*F)_irx
  
 diff --git a/include/bdmsupport.h b/include/bdmsupport.h
-index 0b6df1f..afc3acd 100644
+index 0b6df1f..a0edcd0 100644
 --- a/include/bdmsupport.h
 +++ b/include/bdmsupport.h
-@@ -17,11 +17,15 @@ typedef struct
+@@ -17,11 +17,24 @@ typedef struct
  
  #define MAX_BDM_DEVICES 5
  
 +// [NETBOX] 1 = netbox BDM 驱动已驻留（网络栈不能被拆，见 bdmsupport.c / ethsupport.c）
 +extern int gNetBoxDriverLoaded;
++
++// [NETBOX] sysLoadModuleBuffer(&netbox_irx) 的返回值 + 尚未尝试的哨兵值。
++//   rc < 0   : 模块加载本身就失败（没编进固件 / 导入无法解析 / 内存不足）
++//   rc = 0   : 加载成功且 _start() 返回 MODULE_RESIDENT_END（驱动真正驻留了）
++//   rc > 0   : 模块装上了但 _start() 返回 MODULE_NO_RESIDENT_END（socket/bind 失败等）
++// 由设置页的 "NetBox Network" 标签实时显示：不接电脑、不抓包，也能一眼看出
++// 到底是"驱动没加载"还是"驱动加载了但启动失败"。
++#define NETBOX_START_RC_NOT_TRIED (-1000)
++extern int gNetBoxStartRC;
 +
  #define BDM_TYPE_UNKNOWN -1
  #define BDM_TYPE_USB     0
@@ -173,7 +182,7 @@ index 3cf4be7..7468fbf 100644
  #define CONFIG_NET_SMB_IP_ADDR        "smb_ip"
  #define CONFIG_NET_SMB_NBNS           "smb_share_use_nbns"
 diff --git a/include/dialogs.h b/include/dialogs.h
-index f26aed9..6aa0e59 100644
+index f26aed9..c384970 100644
 --- a/include/dialogs.h
 +++ b/include/dialogs.h
 @@ -40,6 +40,11 @@ enum UI_ITEMS {
@@ -188,6 +197,18 @@ index f26aed9..6aa0e59 100644
      CFG_LASTPLAYED,
      CFG_LBL_AUTOSTARTLAST,
      CFG_AUTOSTARTLAST,
+@@ -196,6 +201,11 @@ enum UI_ITEMS {
+ #endif
+ };
+ 
++// [NETBOX] 块设备设置页里 "NetBox Network" 那一行标签的专用 id。
++// 用显式大数值而不是插进 UI_ITEMS 枚举中部 —— 避免让后面所有 id 整体位移
++// （枚举尾部有 COMPAT_MODE_BASE = 250 这类显式值，位移容易踩到）。
++#define CFG_NETBOX_STATUS   0x40000
++
+ #define COMPAT_NOEXIT       0x70000000
+ #define COMPAT_LOADFROMDISC (COMPAT_LOADFROMDISC_ID | COMPAT_NOEXIT)
+ 
 diff --git a/include/extern_irx.h b/include/extern_irx.h
 index 4acdc9f..4d540bd 100644
 --- a/include/extern_irx.h
@@ -464,10 +485,10 @@ index 0000000..e2b96dc
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..78fa55c
+index 0000000..f3301a6
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,767 @@
+@@ -0,0 +1,806 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -732,13 +753,18 @@ index 0000000..78fa55c
 +/* 收发                                                                */
 +/* ------------------------------------------------------------------ */
 +
-+static int g_sock = -1;
++static int g_sock    = -1; /* 收：绑定 40000，收盒子发往 40000 的应答广播      */
++static int g_tx_sock = -1; /* 发：绑定 30000 —— 实机 PS2 的源端口就是 30000     */
 +static u16 g_txn  = 1;
 +
 +static int nb_send(const u8 *payload, int len)
 +{
 +    struct nb_sockaddr_in dst;
 +    int r;
++    int s = (g_tx_sock >= 0) ? g_tx_sock : g_sock;
++
++    if (s < 0)
++        return -1;
 +
 +    memset(&dst, 0, sizeof(dst));
 +    dst.sin_len    = sizeof(dst);
@@ -746,7 +772,7 @@ index 0000000..78fa55c
 +    dst.sin_port   = htons_(NB_PORT);
 +    dst.sin_addr   = INADDR_BROADCAST; /* 广播：无需知道盒子 IP */
 +
-+    r = NETBOX_SENDTO(g_sock, (void *)payload, len, 0,
++    r = NETBOX_SENDTO(s, (void *)payload, len, 0,
 +                      (struct sockaddr *)&dst, sizeof(dst));
 +    return r;
 +}
@@ -764,8 +790,9 @@ index 0000000..78fa55c
 +    struct nb_sockaddr_in dst;
 +    char buf[192];
 +    int len;
++    int s = (g_sock >= 0) ? g_sock : g_tx_sock; /* 任一 socket 可用即可 */
 +
-+    if (g_sock < 0)
++    if (s < 0)
 +        return;
 +
 +    len = sprintf(buf, "[NETBOX] %s\n", msg);
@@ -778,7 +805,7 @@ index 0000000..78fa55c
 +    dst.sin_port   = htons_(NB_DIAG_PORT);
 +    dst.sin_addr   = INADDR_BROADCAST;
 +
-+    NETBOX_SENDTO(g_sock, buf, len, 0, (struct sockaddr *)&dst, sizeof(dst));
++    NETBOX_SENDTO(s, buf, len, 0, (struct sockaddr *)&dst, sizeof(dst));
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -1191,6 +1218,39 @@ index 0000000..78fa55c
 +    }
 +    nb_diag("bind ok");
 +
++    /* 2b) 再开一个【发送专用】socket，绑定 30000（NB_SRC_PORT）。
++     *
++     * 依据：2026-09-23 实机（厂商 OPL，可用版）桥接抓包逐帧核对 —— PS2 发请求是
++     *   ETH  dst=ff:34:43:xx:ff:ff  src=00:00:00:00:00:00
++     *   IP   0.0.0.0 -> 255.255.255.255  proto=17
++     *   UDP  sport=30000 -> dport=40000      payload 55 aa 48 50 ...
++     * 也就是说【源端口是 30000，不是 40000】。v9 及以前只有一个绑 40000 的 socket，
++     * 于是 nb_send() 变成 "40000 -> 40000"，源端口与实机不符（nb.h 里 NB_SRC_PORT
++     * 定义了却从未被使用）。盒子很可能按源端口识别客户端，所以必须改正。
++     *
++     * 收包仍走 g_sock(40000)：盒子的应答也是发到 40000；而且收包靠 ps2ip 的
++     * 原始帧钩子，不经过 socket，所以收发用两个 socket 互不影响。 */
++    g_tx_sock = NETBOX_SOCKET(AF_INET, SOCK_DGRAM, 0);
++    if (g_tx_sock >= 0) {
++        NETBOX_SETSOCKOPT(g_tx_sock, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
++
++        memset(&me, 0, sizeof(me));
++        me.sin_len    = sizeof(me);
++        me.sin_family = AF_INET;
++        me.sin_port   = htons_(NB_SRC_PORT); /* 30000 */
++        me.sin_addr   = 0;                   /* INADDR_ANY */
++
++        if (NETBOX_BIND(g_tx_sock, (struct sockaddr *)&me, sizeof(me)) < 0) {
++            NETBOX_CLOSE(g_tx_sock);
++            g_tx_sock = -1;
++            nb_diag("tx bind(30000) FAILED -> fallback to 40000 for tx");
++        } else {
++            nb_diag("tx socket bound 30000");
++        }
++    } else {
++        nb_diag("tx socket() FAILED -> fallback to 40000 for tx");
++    }
++
 +    /* 3) 开机握手（激活盒子）—— 必须在任何读操作之前。
 +     * 盒子可能刚上电还没就绪，或第一条广播还没走通，所以整体重试。
 +     * sectors 已在声明处初始化为 0，这里的循环条件才是可靠的。 */
@@ -1354,7 +1414,7 @@ index f00bdd9..98a3232 100644
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..bc96c55 100644
+index b181dec..95b932e 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
 @@ -11,6 +11,7 @@
@@ -1365,7 +1425,7 @@ index b181dec..bc96c55 100644
  #include "modules/iopcore/common/cdvd_config.h"
  
  #include <usbhdfsd-common.h>
-@@ -23,6 +24,12 @@
+@@ -23,6 +24,13 @@
  static int iLinkModLoaded = 0;
  static int mx4sioModLoaded = 0;
  static int hddModLoaded = 0;
@@ -1375,10 +1435,11 @@ index b181dec..bc96c55 100644
 +// [NETBOX] 驱动是否已驻留。ethsupport.c 用它决定"能不能拆网络栈/关 DEV9" ——
 +// netbox 的读盘全靠 ps2ip+smap，栈一拆设备立刻变成哑设备。
 +int gNetBoxDriverLoaded = 0;
++int gNetBoxStartRC = NETBOX_START_RC_NOT_TRIED; // [NETBOX] 设置页会显示这个值
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +110,69 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +111,72 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
@@ -1438,17 +1499,20 @@ index b181dec..bc96c55 100644
 +        memcpy(ps2_dns, saved_dns, sizeof(ps2_dns));
 +
 +        LOG("[NETBOX]:\n");
-+        if (sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL) >= 0) {
++        // [NETBOX] 把返回值留下来：设置页会把它显示成驱动状态，
++        // 这样"驱动到底加载没有、_start() 有没有跑完"就不需要抓包也能看到。
++        gNetBoxStartRC = sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL);
++        if (gNetBoxStartRC >= 0) {
 +            netboxModLoaded = 1;
 +            gNetBoxDriverLoaded = 1;
 +        } else
-+            LOG("netbox: netbox.irx 加载失败\n");
++            LOG("netbox: netbox.irx 加载失败 (rc=%d)\n", gNetBoxStartRC);
 +    }
 +
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +259,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +263,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1458,7 +1522,7 @@ index b181dec..bc96c55 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +896,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +900,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -1468,10 +1532,10 @@ index b181dec..bc96c55 100644
              pDeviceData->bdmDeviceType = BDM_TYPE_UNKNOWN;
  
 diff --git a/src/dialogs.c b/src/dialogs.c
-index 6e19d1d..5e21e19 100644
+index 6e19d1d..14a1c3e 100644
 --- a/src/dialogs.c
 +++ b/src/dialogs.c
-@@ -160,6 +160,58 @@ struct UIItem diaBlockDevicesConfig[] = {
+@@ -160,6 +160,60 @@ struct UIItem diaBlockDevicesConfig[] = {
      {UI_BOOL, CFG_ENABLEBDMHDD, 1, 1, _STR_HDD_HINT, 0, 0, {.intvalue = {0, 0}}},
      {UI_BREAK},
  
@@ -1480,7 +1544,9 @@ index 6e19d1d..5e21e19 100644
 +    {UI_BOOL, CFG_ENABLENETBOX, 1, 1, -1, 0, 0, {.intvalue = {0, 0}}},
 +    {UI_BREAK},
 +
-+    {UI_LABEL, 0, 1, 1, -1, 0, 0, {.label = {"NetBox Network", -1}}},
++    // [NETBOX] 这一行的文字由 gui.c 用 diaSetLabel() 动态替换成驱动状态，
++    // 所以在 UI_ITEMS 里给它一个专用 id（见 dialogs.h 的 CFG_NETBOX_STATUS）。
++    {UI_LABEL, CFG_NETBOX_STATUS, 1, 1, -1, 0, 0, {.label = {"NetBox Network", -1}}},
 +    {UI_BREAK},
 +
 +    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"IP Address", -1}}},
@@ -1573,10 +1639,10 @@ index f0462fa..a1aefb0 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..61a2577 100644
+index 1054228..143c852 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,38 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,61 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -1587,6 +1653,29 @@ index 1054228..61a2577 100644
      diaSetEnabled(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, !gHDDStartMode);
      diaSetInt(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, gEnableBdmHDD);
 +    diaSetInt(diaBlockDevicesConfig, CFG_ENABLENETBOX, gEnableNetBox); // [NETBOX]
++
++    // [NETBOX] 把驱动状态直接写到 "NetBox Network" 这一行上。
++    // 这样不接电脑、不抓包，也能一眼分清卡在哪一层：
++    //   OFF                        -> 开关没开，驱动不会被加载
++    //   not loaded yet             -> 还没走到 BDM 扫描（正常，进一次设备列表就会变）
++    //   module load FAILED (rc<0)  -> netbox.irx 压根没加载上（没编进固件 / 导入解析失败）
++    //   driver START FAILED (rc>0) -> 模块装上了，但 _start() 早退（socket/bind 失败）
++    //   driver resident            -> 模块加载成功且 _start() 驻留，网络栈已起来
++    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
++    {
++        static char netboxStatus[72];
++        if (!gEnableNetBox)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox Network: OFF");
++        else if (gNetBoxStartRC == NETBOX_START_RC_NOT_TRIED)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON (not loaded yet)");
++        else if (gNetBoxStartRC < 0)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, module load FAILED (rc=%d)", gNetBoxStartRC);
++        else if (gNetBoxStartRC > 0)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, driver START FAILED (rc=%d)", gNetBoxStartRC);
++        else
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, driver resident");
++        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
++    }
 +
 +    // [NETBOX] NetBox 专用网络配置（独立 SMB）。
 +    // 直连盒子的链路没有 DHCP 服务器（盒子只回广播、自身不跑 DHCP），
