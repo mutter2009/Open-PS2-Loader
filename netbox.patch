@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..9d01900
+index 0000000..09e71c4
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,150 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -100,37 +100,34 @@ index 0000000..9d01900
 +            echo "link DOWN 串        : $(grep -a -c 'PHY link DOWN' modules/netbox/netbox.irx 2>&1)"
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
-+            echo "=== [v15 关键证据] 寄存器级收发现场诊断是否真的编进了二进制 ==="
-+            echo "--- 版本串必须是 v1.6 ... PHY gate diag（看到 v1.6 才是本轮；v1.5=上一轮）---"
++            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
++            echo "--- 版本串必须是 v1.7 ... link reinit diag（看到 v1.7 才是本轮；v1.6=上一轮）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
-+            echo "--- v15 新增符号 6=smap_get_rx_diag / 7=smap_get_phy_dump（查未 strip 的 ELF）---"
-+            echo "smap ELF   smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "--- v17 第 8 个导出 smap_phy_reinit（查【未 strip 的 ELF】，.irx 里没有函数名）---"
++            echo "smap ELF   smap_phy_reinit  : $(grep -a -c 'smap_phy_reinit' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_phy_reinit  : $(grep -a -c 'smap_phy_reinit' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- 旧导出（编号 1..7）一个都不能少：改了导出表就必须整表一起看 ---"
 +            echo "smap ELF   smap_get_phy_dump : $(grep -a -c 'smap_get_phy_dump' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
-+            echo "netbox ELF smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/netbox/netbox.notiopmod.elf 2>&1)"
-+            echo "netbox ELF smap_get_phy_dump : $(grep -a -c 'smap_get_phy_dump' modules/netbox/netbox.notiopmod.elf 2>&1)"
-+            echo "--- xfer.c 里的收帧记账符号（证明改的是 HandleRxIntr 那条静默丢帧分支）---"
++            echo "smap ELF   smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "smap ELF   smap_get_rx_hook  : $(grep -a -c 'smap_get_rx_hook'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "--- xfer.c 的收帧记账符号仍在（v15 那条静默丢帧分支的证据）---"
 +            echo "smap ELF nb_dbg_rx_bad     : $(grep -a -c 'nb_dbg_rx_bad'     modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
-+            echo "smap ELF nb_dbg_rx_ok      : $(grep -a -c 'nb_dbg_rx_ok'      modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
 +            echo "smap ELF nb_dbg_intr_rxend : $(grep -a -c 'nb_dbg_intr_rxend' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
-+            echo "smap ELF nb_dbg_rx_waiting : $(grep -a -c 'nb_dbg_rx_waiting' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
-+            echo "--- v15 自检/诊断串（在 .irx 里，可查）---"
-+            echo "reg-level rx diag 串 : $(grep -a -c 'reg-level rx diag' modules/netbox/netbox.irx 2>&1)"
-+            echo "rxq= 诊断串          : $(grep -a -c 'rxq=' modules/netbox/netbox.irx 2>&1)"
-+            echo "phy bmsr= 诊断串     : $(grep -a -c 'phy bmsr=' modules/netbox/netbox.irx 2>&1)"
-+            echo "FAIL stage= 出现次数 : $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo
-+            echo "=== [v16 关键证据] PHY 身份诊断闸是否真的编进去了 ==="
-+            echo "--- 这三条格式串就是 v16 新增的 PHY 闸：---"
-+            echo "PHY gate FAILED 串  : $(grep -a -c 'PHY gate FAILED' modules/netbox/netbox.irx 2>&1)"
-+            echo "PHY identity 诊断串 : $(grep -a -c 'PHY identity unusable' modules/netbox/netbox.irx 2>&1)"
-+            echo "--- 版本串里的 v1.6 / PHY gate diag 标记（两条都应 >=1）---"
-+            echo "v1.6 标记           : $(grep -a -c 'v1.6' modules/netbox/netbox.irx 2>&1)"
-+            echo "PHY gate diag 标记  : $(grep -a -c 'PHY gate diag' modules/netbox/netbox.irx 2>&1)"
-+            echo "--- gui.c 侧的 v16 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
++            echo "--- v17 自检/诊断串（在 .irx 里，可查）---"
++            echo "link gate FAILED 串 : $(grep -a -c 'link gate FAILED' modules/netbox/netbox.irx 2>&1)"
++            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
++            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
++            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.7 标记           : $(grep -a -c 'v1.7' modules/netbox/netbox.irx 2>&1)"
++            echo "link reinit diag    : $(grep -a -c 'link reinit diag' modules/netbox/netbox.irx 2>&1)"
++            echo "--- gui.c 侧的 v17 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
 +            echo "OPL.elf: 'NO PHY (mdio floats FFFF)' : $(grep -a -c 'NO PHY (mdio floats FFFF)' opl.elf 2>&1)"
-+            echo "OPL.elf: 'PHY not DP83846'           : $(grep -a -c 'PHY not DP83846' opl.elf 2>&1)"
-+            echo "OPL.elf: 'PHY mdio ALL ZERO'         : $(grep -a -c 'PHY mdio ALL ZERO' opl.elf 2>&1)"
-+            echo "（三条都应 >=1；若为 0 说明 gui.c 的解码分支没编进去）"
++            echo "OPL.elf: 'link DOWN bmsr='           : $(grep -a -c 'link DOWN bmsr=' opl.elf 2>&1)"
++            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
++            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
++            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v17)'   : $(grep -a -c 'resident (raw SMAP v17)' opl.elf 2>&1)"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
@@ -375,10 +372,10 @@ index 0000000..ff4da73
 +include $(PS2SDK)/samples/Makefile.iopglobal
 diff --git a/modules/netbox/imports.lst b/modules/netbox/imports.lst
 new file mode 100644
-index 0000000..64febc3
+index 0000000..1a3e199
 --- /dev/null
 +++ b/modules/netbox/imports.lst
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,71 @@
 +/*
 + * netbox.irx 的导入清单。
 + *
@@ -407,6 +404,7 @@ index 0000000..64febc3
 +I_smap_get_rx_hook
 +I_smap_get_rx_diag
 +I_smap_get_phy_dump
++I_smap_phy_reinit
 +netboxh_IMPORTS_end
 +
 +stdio_IMPORTS_start
@@ -612,10 +610,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..aafd14a
+index 0000000..8c50e85
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,1328 @@
+@@ -0,0 +1,1429 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -731,6 +729,13 @@ index 0000000..aafd14a
 +/* v15：收发路径现场计数 + PHY 快照。都只是读寄存器/读计数器，无副作用。 */
 +extern int smap_get_rx_diag(unsigned int *out, int n);
 +extern int smap_get_phy_dump(unsigned int *out, int n);
++/* v17：主动把 PHY 初始化补跑一遍（SMAPStart 里因为 BMSR 报有链路而被跳过的那一刀），
++ * 并把 BMCR/BMSR/ANAR/ANLPAR/PHYSTS/EMAC3-FDX/LinkMode 现场交出来。
++ * 它是【有界】的（上限约 10.6 秒）—— 上游 InitPHY() 里有个会无限循环的
++ * goto，网线没插时永不返回，会直接把 OPL 启动卡死，所以不能用。
++ * 返回 0 = 链路就绪 / 1 = 没就绪；细节在 out[11] 低 4 位。
++ * 编号 8，见 netbox_imports.h 与 smap-ingame/exports.tab。 */
++extern int smap_phy_reinit(unsigned int *out, int n);
 +
 +/* ------------------------------------------------------------------ */
 +/* 收包环形缓冲（原始帧钩子写入，协议线程消费）                          */
@@ -1037,45 +1042,50 @@ index 0000000..aafd14a
 +#define NB_STAGE_READ0    7
 +#define NB_STAGE_BOOTSIG  8
 +
-+/* 返回值编码的基址：减去它就得到 stage/link/hook。见上方说明。 */
-+#define NB_FAIL_BASE      1000000
-+
 +/* ------------------------------------------------------------------
-+ * [v16] PHY 身份诊断包 —— 只用在"PHY 是谁都认不出来"这条路上。
++ * [v17] 链路诊断包 —— 失败时把「链路现场」整个编进返回值。
 + *
-+ * 起因：v15 实机报回 "FAIL noreply lk=5 rx=0 e=0 hk=0"。
-+ * lk=5 的定义是"PHY 的 ID 读回来不匹配 DP83846"，但这【一句话盖住了
-+ * 三种完全不同的病】，而三种病的修法毫不相干：
++ * 演进：v15 用十进制 5 段编码（stage/lk/rx/e/hook）；v16 为了装下 16 位
++ * PHYIDR1 改成位打包；v17 保留位打包，但把字段换成此刻更该看的四个量。
 + *
-+ *   ① MDIO 操作压根没完成 —— _smap_read_phy() 的轮询超时后【返回 0】
-+ *      => PHYIDR1/PHYIDR2 全读成 0x0000。说明 EMAC3 的 STA_CTRL 没在跑，
-+ *         也就是这块 SMAP 硬件根本没被我们用上。
-+ *   ② MDIO 完成了，但 MDIO 数据线悬空 —— 读回 0xFFFF（全 1）
-+ *      => 这个地址上【没有 PHY 芯片】。要么这一路网口不是我们驱动的那个，
-+ *         要么主机这边就不存在这个网卡。
-+ *   ③ MDIO 完成、ID 也是合法的，只是不是 National DP83846
-+ *      => PHY 在、链路很可能也是好的，是【我的判据太严】。
-+ *         注意 OPL 上游的 InitPHY() 对 ID 不匹配的处理是"跳过 DP83846
-+ *         专用的几条 workaround，继续往下走并 return 0"——它并不因此
-+ *         判失败。只有我把 ID 不匹配升级成了致命错误。
++ * 起因：v16 实机报回 "FAIL link PHY not DP83846 id1=0143 id2=BC" ——
++ * 这是当时列的三种可能里【最好的那一种】：PHY 在、MDIO 通、ID 合法，
++ * 只是它不是 National DP83846。也就是说 v16 那条"ID 必须等于 DP83846"
++ * 的判据太严，把自己拦住了（OPL 上游对 ID 不匹配的处理是"跳过 DP83846
++ * 专有的几条 workaround，继续往下走并 return 0"，并不判失败）。
 + *
-+ * 为什么不能沿用 v15 那套十进制编码：它是 5 个字段、每字段只有 1 位
-+ * 十进制，装不下 16 位的 PHYIDR1。所以这条路上改用【位打包】，由 EE 侧
-+ * src/gui.c 解回人话。位布局（bit31 必须为 0，否则返回值变成负数）：
++ * 判据放宽之后，真正要回答的问题只剩一句：**链路到底通没通、通在什么
++ * 速率什么双工**。因为 SMAPStart() 里那一行是
++ *     result = (!(BMSR & LINK)) ? InitPHY(...) : 0;
++ * —— BMSR 报"有链路"时 InitPHY() 根本不跑，而 InitPHY() 里"算出 LinkMode
++ * + 把 FDX 写进 EMAC3 MODE1"这两件【任何 PHY 都必须做】的事就一起被跳过了
++ * （它们在 DP83846 那段 if 之外，本该人人执行）。
++ * 结果 MAC 停在 smap_init() 硬编码的 100M 全双工，与 PHY 实际模式可能不符
++ * => 收帧全部采样错 => "发得出去、一个回包都收不到"。
 + *
-+ *   bit30     = 1                  标记：这是 v16 诊断包
-+ *   bit27..29 = code  (0..7)       PHY 身份分类，见 NB_PHY_*
-+ *   bit24..26 = stage (1..7)       哪个关卡报的
-+ *   bit8..23  = PHYIDR1 原值 (16b)
-+ *   bit0..7   = PHYIDR2 >> 8       高字节：OUI 低 6 位 + model 高 2 位
++ * 所以 v17 先主动补跑一次 PHY 初始化（smap_phy_reinit，导入编号 8），
++ * 失败时再把这四个量连同身份分类一起打包，由 EE 侧 src/gui.c 解回人话。
++ * 位布局（bit31 必须为 0，否则 gNetBoxStartRC 变负数、gui.c 分支全乱）：
++ *
++ *   bit30     = 1               标记：这是位打包诊断包
++ *   bit26..29 = stage  (1..15)  哪一关报的（NB_STAGE_*）
++ *   bit21..25 = code   (0..31)  诊断码，见 NB_D_*
++ *   bit13..20 = BMSR 低 8 位    ★含 bit5 ANCP / bit2 Link（MII 标准位）
++ *   bit5..12  = PHYSTS 低 8 位  含 link/10M/FDX（DP83846 扩展位，仅参考）
++ *   bit0..4   = LinkMode 低 5 位 驱动结算出的速率+双工
 + * ------------------------------------------------------------------ */
-+#define NB_V16_MARK     0x40000000
++#define NB_V17_MARK     0x40000000
 +
-+#define NB_PHY_ID_OK    0 /* 没用到：ID 匹配时不走这条路（仍走 v15 那套） */
-+#define NB_PHY_ALL_ZERO 1 /* ① PHYIDR1/2 全 0x0000 —— MDIO 超时没完成   */
-+#define NB_PHY_ALL_FFFF 2 /* ② 全 0xFFFF —— 数据线悬空，这个地址上没有 PHY */
-+#define NB_PHY_OTHER    3 /* ③ 两个都是合法值但不匹配 DP83846 —— 判据太严 */
-+#define NB_PHY_MIXED    4 /* 其他（一个 0 一个非 0 之类）—— 需要人看原值 */
++/* 诊断码。前 5 个回答"PHY 是谁"，后 4 个回答"链路通没通"。 */
++#define NB_D_PHY_DP83846   0 /* PHY ID = DP83846（正常路径，不会报失败）      */
++#define NB_D_PHY_ALL_ZERO  1 /* PHYIDR1/2 全 0x0000 —— MDIO 超时没完成        */
++#define NB_D_PHY_ALL_FFFF  2 /* 全 0xFFFF —— 数据线悬空，该地址上没有 PHY     */
++#define NB_D_PHY_OTHER     3 /* 合法 ID 但不是 DP83846（v16 实测就是这种）    */
++#define NB_D_PHY_MIXED     4 /* 一个 0 一个非 0 —— 需要人看原值               */
++#define NB_D_LINK_NO_PHY   5 /* 补跑之后 BMSR 仍全 0/全 F —— 这次读不可信     */
++#define NB_D_LINK_DOWN     6 /* 补跑之后 BMSR.link 仍为 0 —— 链路真的没起来   */
++#define NB_D_LINK_UP       7 /* 补跑之后 BMSR.link=1（不该走到失败，留给断言）*/
++#define NB_D_PHY_RST_STUCK 8 /* PHY 软复位没在第一次读就清位（InitPHY 早退）  */
 +
 +/*
 + * [v15] 失败现场快照。所有值都来自「读寄存器 / 读计数器」，无副作用。
@@ -1113,62 +1123,125 @@ index 0000000..aafd14a
 +}
 +
 +/* ------------------------------------------------------------------
-+ * [v16] PHY 身份诊断 —— 见文件上方 NB_V16_MARK 那段说明。
++ * [v17] 链路现场诊断 —— 见文件上方 NB_V17_MARK 那段说明。
 + * ------------------------------------------------------------------ */
 +
-+static int g_phy_code = NB_PHY_ID_OK;
++static int          g_phy_code = NB_D_PHY_DP83846; /* 诊断码，见 NB_D_*   */
++static unsigned int g_link2[12];                   /* smap_phy_reinit 快照 */
++static int          g_link_rc = -1;                /* smap_phy_reinit 返回 */
 +
-+/* 把 code/stage/PHYIDR1/PHYIDR2 打进一个 int（位布局见 NB_V16_MARK 注释）。
-+ * 注意 bit31 恒为 0：EE 侧 gNetBoxStartRC 是 int，置了符号位就变负数，
++/* 把 stage/code/BMSR/PHYSTS/LinkMode 打进一个 int（布局见 NB_V17_MARK 注释）。
++ * bit31 恒为 0：EE 侧 gNetBoxStartRC 是 int，置了符号位就变负数，
 + * gui.c 的分支判断会全乱。 */
-+static int nb_phy_pack(int stage, int code, unsigned int idr1, unsigned int idr2)
++static int nb_diag_pack(int stage, int code, unsigned int bmsr, unsigned int sts, unsigned int lm)
 +{
 +    unsigned int v;
 +
-+    v = (unsigned int)NB_V16_MARK
-+        | ((((unsigned int)code) & 7u) << 27)
-+        | ((((unsigned int)stage) & 7u) << 24)
-+        | ((idr1 & 0xFFFFu) << 8)
-+        | ((idr2 >> 8) & 0xFFu);
++    v = (unsigned int)NB_V17_MARK
++        | ((((unsigned int)stage) & 0x0Fu) << 26)
++        | ((((unsigned int)code) & 0x1Fu) << 21)
++        | ((bmsr & 0xFFu) << 13)
++        | ((sts & 0xFFu) << 5)
++        | (lm & 0x1Fu);
 +
 +    return (int)v;
 +}
 +
 +/*
-+ * PHY 身份自检（v16 新增，放在链路自检【之前】）。
-+ *   返回 1 = PHY 认出来了，可以继续判链路；
-+ *   返回 0 = PHY 身份不明，调用方应当立刻用 nb_phy_pack() 报出去。
++ * [v16→v17] PHY 身份分类 —— 只分类，不再判失败。
 + *
-+ * 为什么不能只看 smap_get_link_status()：它读的是 BMSR 的 link 位，而
-+ * PHY 不响应时 MDIO 读回 0xFFFF —— 那一位恰好是 1。于是"根本没有 PHY"
-+ * 会被读成"链路正常"，stage 2 一路放行，一直到 stage 5 才以"盒子不回话"
-+ * 的形式暴露出来。这正是 v15 之前每一轮都在踩的坑。
++ * v16 时这个函数在"ID 不是 DP83846"时【直接终止启动】。v16 的实机结果证明
++ * 那是错的：本机这颗 PHY 的 ID 是 0x0143BCxx —— 合法 OUI、不是 0xFFFF 也不是 0,
++ * 只是不是 National DP83846。而 OPL 上游对非 DP83846 的 PHY 本来就是容忍的：
++ * InitPHY() 里那几段 DP83846 专有 workaround 被跳过，函数照样往下算完
++ * LinkMode 并 return 0。所以"ID 不是 DP83846"只是一条信息，不是错误。
++ *
++ * 只有"真的读不到 PHY"（全 0 = MDIO 超时 / 全 F = 数据线悬空 / 半读回）
++ * 才算异常；而且异常也不在这里终止 —— 交给后面的链路闸用 BMSR 去判，
++ * 因为那个判据更靠近"帧到底能不能收发"这个真问题。
 + */
-+static int nb_phy_gate(void)
++static void nb_phy_identify(void)
 +{
 +    unsigned int idr1, idr2;
 +    int rc;
 +
 +    memset(g_phy, 0, sizeof(g_phy));
-+    rc = smap_get_phy_dump(g_phy, 10); /* rc==5 就是"ID 不匹配" */
++    rc = smap_get_phy_dump(g_phy, 10); /* rc==5 就是"ID 不匹配 DP83846" */
 +    idr1 = g_phy[2] & 0xFFFFu;
 +    idr2 = g_phy[3] & 0xFFFFu;
 +
 +    if (rc != 5) {
-+        g_phy_code = NB_PHY_ID_OK;
-+        return 1;
++        g_phy_code = NB_D_PHY_DP83846;
++    } else if (idr1 == 0xFFFFu && idr2 == 0xFFFFu) {
++        g_phy_code = NB_D_PHY_ALL_FFFF; /* 数据线悬空，该地址上没有 PHY */
++    } else if (idr1 == 0u && idr2 == 0u) {
++        g_phy_code = NB_D_PHY_ALL_ZERO; /* MDIO 轮询超时，没完成 */
++    } else if (idr1 == 0u || idr2 == 0u) {
++        g_phy_code = NB_D_PHY_MIXED; /* 半读回，需要人看原值 */
++    } else {
++        g_phy_code = NB_D_PHY_OTHER; /* 合法 ID、不是 DP83846（实测就是这样）*/
++    }
++}
++
++/*
++ * ★v17 的核心★ 先把 PHY 初始化补跑一遍，再用 MII 标准位判链路。
++ *
++ * 为什么必须"先补跑"：SMAPStart() 里那一行是
++ *     result = (!(BMSR & LINK)) ? InitPHY(...) : 0;
++ * BMSR 报"有链路"时 InitPHY() 根本不跑；而 InitPHY() 里
++ * 「算 LinkMode + 把 FDX/流控写进 EMAC3 MODE1」这两件【任何 PHY 都必须做】
++ * 的事，正好在 DP83846 那段 if 之外 —— 本该人人执行，却跟着一起被跳过。
++ * 而 BMSR 的 link 位有两个假阳性来源：
++ *   - PHY 不响应时 MDIO 数据线悬空、读回 0xFFFF，bit2 恰好是 1；
++ *   - 链路刚插上、自协商还没跑完的那一瞬间，bit2 也会是 1。
++ * 于是 MAC 停在 smap_init() 硬编码的 100M 全双工，与 PHY 实际模式可能不符
++ * => 收帧全部采样错 => "发得出去、一个回包都收不到"。
++ * 这也正是 xfer.c 里那条"收帧带错误标志 -> 空 if 静默丢弃"的另一半。
++ *
++ * 调 smap_phy_reinit() 之后：
++ *   - 链路已 up 且自协商完成 -> 它只做 MAC 侧对齐，不打断链路；
++ *   - 否则 -> 老老实实跑完整 InitPHY()（软复位 / 自协商 / 手动 fallback）。
++ * 判链路【只看 BMSR】（MII 标准 bit2 = Link Status），不看 PHYSTS ——
++ * 后者是 DP83846 的扩展寄存器，本机这颗非 DP83846 的 PHY 上那几位含义
++ * 可能完全不同，拿它当判据会重演"假阳性"。
++ *
++ * 返回 1 = 链路可用；0 = 不可用（调用方用 nb_diag_pack 报出去）。
++ */
++static int nb_link_gate(void)
++{
++    unsigned int bmsr;
++    int i;
++
++    for (i = 0; i < 12; i++)
++        g_link2[i] = 0;
++    g_link_rc = smap_phy_reinit(g_link2, 12);
++
++    bmsr = g_link2[1] & 0xFFFFu;
++
++    if (bmsr == 0xFFFFu || bmsr == 0x0000u) {
++        /* 连 BMSR 都读不回来 —— 它的 link 位不能作依据。
++         * 这时最有用的信息是 nb_phy_identify() 已经判好的"PHY 在不在"：
++         *   - 那时读到过合法 ID（code != DP83846 那档的其它值）-> 说明
++         *     PHY 在、只是这次 BMSR 单独读失败；
++         *   - 那时也是全 0/全 F -> 那本来就是"没 PHY"，保留那个更准的码。 */
++        if (g_phy_code == NB_D_PHY_DP83846)
++            g_phy_code = NB_D_LINK_NO_PHY;
++        return 0;
 +    }
 +
-+    if (idr1 == 0xFFFFu && idr2 == 0xFFFFu)
-+        g_phy_code = NB_PHY_ALL_FFFF; /* ② 悬空 */
-+    else if (idr1 == 0u && idr2 == 0u)
-+        g_phy_code = NB_PHY_ALL_ZERO; /* ① MDIO 超时 */
-+    else if (idr1 == 0u || idr2 == 0u)
-+        g_phy_code = NB_PHY_MIXED; /* 半读回来，需要看原值 */
-+    else
-+        g_phy_code = NB_PHY_OTHER; /* ③ 合法但非 DP83846 */
++    if ((bmsr & 0x0004u) == 0) {
++        /* BMSR bit2 为 0 = 真的没有链路。再分一层：
++         * smap_phy_reinit() 在 out[11] 的低 4 位带回细节 ——
++         *   1 = PHY 软复位那一步就没完成（RST 位一直不清）-> 查 PHY 与供电
++         *   2 = 复位完成了、自协商与手动 100M/10M 都试过，链路仍不 up
++         *       -> 查网线与对端
++         * 两者修法完全不同，不能混成一句话。 */
++        g_phy_code = ((g_link2[11] & 0x0Fu) == 1u) ? NB_D_PHY_RST_STUCK : NB_D_LINK_DOWN;
++        return 0;
++    }
 +
-+    return 0;
++    g_phy_code = NB_D_LINK_UP;
++    return 1;
 +}
 +
 +/*
@@ -1208,9 +1281,10 @@ index 0000000..aafd14a
 + */
 +static int nb_fail(int stage)
 +{
-+    char msg[160];
++    char msg[192];
 +    int  hooks = g_hook_calls;
 +    int  rxq;
++    unsigned int bmsr, sts, lm;
 +
 +    if (hooks > 99)
 +        hooks = 99;
@@ -1220,62 +1294,52 @@ index 0000000..aafd14a
 +    nb_snapshot();
 +    rxq = nb_rx_summary();
 +
++    /* 链路现场优先用 smap_phy_reinit() 的那一份 —— 它记的是"补跑 InitPHY
++     * 之后"的寄存器值，而 g_phy 是补跑之前的快照。没走到链路闸就失败的
++     * （stage=1，钩子自检都没过）才退回 g_phy。 */
++    if (g_link_rc >= 0) {
++        bmsr = g_link2[1] & 0xFFFFu;
++        sts  = g_link2[6] & 0xFFFFu;
++        lm   = g_link2[8] & 0xFFu;
++    } else {
++        bmsr = g_phy[1] & 0xFFFFu;
++        sts  = g_phy[7] & 0xFFFFu;
++        lm   = (unsigned int)g_lk_code;
++    }
++
 +    /* 摘钩子：函数体在本模块里，模块卸载后 smap 每收一帧跳进来必崩。 */
 +    smap_set_rx_hook(NULL);
 +
-+    /* 诊断通道（PC 抓 UDP 40001）。分两行，避免超过 nb_diag 的缓冲。
-+     * 只有发帧真通时才能收到，所以这里是"锦上添花"，上屏那条才是主通道。 */
-+    sprintf(msg, "FAIL stage=%d lk=%d rx=%d e=%d hk=%d -> not resident",
-+            stage, g_lk_code, rxq, (int)g_rxd[18], hooks);
++    /* 诊断通道（PC 抓 UDP 40001）。只有发帧真通时才能收到，所以这里是
++     * "锦上添花"；上屏那条（_start 的返回值）才是主通道。 */
++    sprintf(msg, "FAIL stage=%d code=%d bmsr=%04x sts=%04x lm=%02x -> not resident",
++            stage, g_phy_code, bmsr, sts, lm);
 +    nb_diag(msg);
 +
-+    sprintf(msg, "rxq=%u txq=%u ok=%u bad=0x%04x ins=%u rxend=%u rxintr=%u wait=%u mode1=%08x emac3=%08x",
-+            g_rxd[0], g_rxd[1], g_rxd[9], g_rxd[11],
-+            g_rxd[4], g_rxd[5], g_rxd[7], g_rxd[8], g_rxd[12], g_rxd[2] | g_rxd[3]);
++    sprintf(msg, "link rc=%d bmcr=%04x anar=%04x anlpar=%04x aner=%04x emac3fdx=%u",
++            g_link_rc, g_link2[0] & 0xFFFFu, g_link2[4] & 0xFFFFu,
++            g_link2[5] & 0xFFFFu, g_link2[10] & 0xFFFFu, g_link2[7] & 1u);
 +    nb_diag(msg);
 +
-+    sprintf(msg, "phy bmsr=%04x sts=%04x bmcr=%04x anlpar=%04x anar=%04x id=%04x%04x",
-+            g_phy[1], g_phy[7], g_phy[0], g_phy[5], g_phy[4], g_phy[2], g_phy[3]);
++    sprintf(msg, "rxq=%u txq=%u ok=%u bad=0x%04x rxintr=%u wait=%u hk=%d",
++            g_rxd[0], g_rxd[1], g_rxd[9], g_rxd[11], g_rxd[7], g_rxd[8], hooks);
 +    nb_diag(msg);
 +
-+    printf("netbox: FAIL stage=%d lk=%d rx=%d e=%d hk=%d bmsr=0x%04x sts=0x%04x (not resident)\n",
-+           stage, g_lk_code, rxq, (int)g_rxd[18], hooks,
-+           g_phy[1] & 0xFFFF, g_phy[7] & 0xFFFF);
++    printf("netbox: FAIL stage=%d code=%d bmsr=0x%04x sts=0x%04x lm=0x%02x (not resident)\n",
++           stage, g_phy_code, bmsr, sts, lm);
 +
-+    return NB_FAIL_BASE + stage * 100000 + g_lk_code * 10000 + rxq * 1000 +
-+           (int)g_rxd[18] * 100 + hooks;
++    return nb_diag_pack(stage, g_phy_code, bmsr, sts, lm);
 +}
 +
 +/*
-+ * v14：读 PHY 的真实链路状态，最多等 3 秒。
-+ *
-+ * 为什么不能直接用"发送成功"当判据 —— 见上方 g_tx_err 处的长注释：
-+ * InitPHY() 无条件 return 0，所以没有链路时 SmapIsInitialized 也是 1、
-+ * SMAPSendPacket() 也返回 1。只有 PHY 的 BMSR bit2 是可信的。
-+ *
-+ * 为什么要等：SMAPStart() 在我们加载之前就跑完了（smap_init -> SMAPStart
-+ * 里的自动协商可能要好几秒），正常情况下这里一次就读到；但插拔线、
-+ * 对端刚上电这类情形下链路可能还在协商中，给 3 秒余量免得误报。
-+ */
-+static int nb_wait_link(void)
-+{
-+    unsigned int bmsr = 0, anlpar = 0, linkmode = 0;
-+    int i;
-+
-+    for (i = 0; i < 30; i++) { /* 30 x 100ms = 3s */
-+        if (smap_get_link_status(&bmsr, &anlpar, &linkmode) == 1) {
-+            g_link_up   = 1;
-+            g_last_bmsr = bmsr;
-+            g_link_mode = linkmode;
-+            return 1;
-+        }
-+        g_last_bmsr = bmsr;
-+        DelayThread(100 * 1000);
-+    }
-+
-+    g_link_up = 0;
-+    return 0;
-+}
++ * [v17 已删除 nb_wait_link()] —— 它原来是"读 smap_get_link_status() 最多等 3 秒"
++ * 的被动观察者。v17 换成 nb_link_gate()：先主动把 PHY 初始化补跑一遍
++ * （smap_phy_reinit()，因为 SMAPStart() 在 BMSR 报有链路时会跳过 InitPHY()，
++ * 而 InitPHY() 里"算 LinkMode + 写 EMAC3 FDX"这两件任何 PHY 都必须做的事
++ * 就跟着被跳过了），再用同一份快照里的 BMSR 判链路。
++ * 被动等 3 秒读到的还是那个可能为假的 BMSR 位，主动补跑才有意义。
++ * smap_get_link_status 的导入仍保留（编号 4，不在任何路径上移除，
++ * 保持 ordinal 表稳定 —— 见 tools/irx_ordinal_check.py）。 */
 +
 +/*
 + * v13：确认 SMAP 真的能发帧。
@@ -1749,7 +1813,7 @@ index 0000000..aafd14a
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.6 (raw SMAP + PHY gate diag)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.7 (raw SMAP + link reinit diag)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -1795,37 +1859,72 @@ index 0000000..aafd14a
 +     * 而驱动照样一路跑到 resident（v12 的整个玄学都在这里）。
 +     */
 +    /*
-+     * 2a) 【v16 新增】PHY 身份自检 —— 必须排在链路自检前面。
++     * 2a) 【v16 新增，v17 改成只诊断、不再拦】PHY 身份。
 +     *
-+     * 上一轮 v15 报回的是 "stage=5 lk=5"：链路那一关放行了，一直到
-+     * 握手没人应答才失败，而失败现场的 lk=5 又只说"ID 不匹配"。
-+     * 问题在于链路那一关用的是 BMSR 的 link 位，PHY 不响应时 MDIO
-+     * 读回 0xFFFF、link 位恰好是 1 —— 于是"没有 PHY"被读成"链路正常"。
++     * v16 这一关是"ID 不是 DP83846 就立刻失败"。v16 实机结果证明那是我
++     * 自己判据太严：本机这颗 PHY 的 ID 读回来是 0x0143BCxx —— 合法 OUI，
++     * 既不是 0xFFFF 也不是 0，只是不是 National DP83846。
++     * 而 OPL 上游对非 DP83846 的 PHY 本来就是容忍的：InitPHY() 里那几段
++     * DP83846 专有 workaround 被跳过，函数照样算完 LinkMode 并 return 0。
 +     *
-+     * 所以先把"PHY 到底是谁"问清楚。三种结果（全 0 / 全 F / 合法但非
-+     * DP83846）对应三种完全不同的修法，见文件上方 NB_V16_MARK 的说明。
-+     * 认不出来就【立刻在这里失败】，并用位打包把 PHYIDR1/PHYIDR2 的原值
-+     * 送出去 —— 不要再让它一路混到 stage 5 变成"盒子不回话"。
++     * 所以现在只把身份"记下来"（进 g_phy / g_phy_code，失败时走诊断通道），
++     * 不再因为身份而终止 —— 真正该判的是下面那条链路。
 +     */
-+    if (!nb_phy_gate()) {
++    nb_phy_identify();
++    {
 +        char msg[128];
-+        sprintf(msg, "PHY gate FAILED code=%d idr1=%04x idr2=%04x bmsr=%04x sts=%04x",
-+                g_phy_code, g_phy[2] & 0xFFFF, g_phy[3] & 0xFFFF,
-+                g_phy[1] & 0xFFFF, g_phy[7] & 0xFFFF);
++        sprintf(msg, "phy identify code=%d idr1=%04x idr2=%04x bmsr=%04x sts=%04x",
++                g_phy_code, g_phy[2] & 0xFFFFu, g_phy[3] & 0xFFFFu,
++                g_phy[1] & 0xFFFFu, g_phy[7] & 0xFFFFu);
 +        nb_diag(msg);
-+        printf("netbox: PHY gate FAILED code=%d idr1=0x%04x idr2=0x%04x (not resident)\n",
-+               g_phy_code, g_phy[2] & 0xFFFF, g_phy[3] & 0xFFFF);
-+        smap_set_rx_hook(NULL); /* 模块马上要被卸掉，钩子必须先摘 */
-+        return nb_phy_pack(NB_STAGE_LINK, g_phy_code, g_phy[2], g_phy[3]);
 +    }
 +
-+    if (!nb_wait_link()) {
-+        char msg[96];
-+        sprintf(msg, "PHY link DOWN (bmsr=0x%04x) -> 帧发不出去, 先查网线/对端",
-+                (unsigned int)g_last_bmsr & 0xFFFF);
++    /*
++     * 2b) 【v17 新增，★这一版的核心★】把 PHY 初始化补跑一遍，再判链路。
++     *
++     * SMAPStart() 里决定"要不要初始化 PHY"的只有一行：
++     *     result = (!(BMSR & LINK)) ? InitPHY(&SmapDriverData) : 0;
++     * 也就是 —— BMSR 报"有链路"时 InitPHY() 根本不会被调用。
++     * 而 InitPHY() 里除了一段 DP83846 专有 workaround 之外，还有两件
++     * 【任何 PHY 都必须做】的事：「算 LinkMode」与「把 FDX/流控写进
++     * EMAC3 MODE1」。这两件正好在 DP83846 那段 if 之外，本该人人执行，
++     * 却跟着一起被跳过了。
++     *
++     * 而 BMSR 的 link 位有两个假阳性来源：
++     *   - PHY 不响应时 MDIO 数据线悬空、读回 0xFFFF，bit2 恰好是 1；
++     *   - 链路刚插上、自协商还没跑完的那一瞬间，bit2 也会是 1。
++     * 于是 MAC 停在 smap_init() 硬编码的 100M 全双工，而 PHY 实际可能是
++     * 10M 半双工 / 100M 半双工 => 双工不匹配 => 本侧发出去的帧对端收得到，
++     * 对端回过来的帧本侧 MAC 全部采样错 => "发得出去、一个回包都收不到"。
++     * 这正是 xfer.c 里那条"收帧带错误标志 -> 空 if 静默丢弃"的另一半。
++     *
++     * smap_phy_reinit() 把这一刀补回来：链路已 up 就只做 MAC 侧对齐
++     * （不打断链路），没 up 就老老实实跑完整 InitPHY()（软复位 /
++     * 自协商 / 手动 100M/10M fallback）。成败由它交出的 BMSR 判定。
++     */
++    if (!nb_link_gate()) {
++        char msg[128];
++        sprintf(msg, "link gate FAILED code=%d rc=%d idr1=%04x idr2=%04x",
++                g_phy_code, g_link_rc,
++                g_link2[2] & 0xFFFFu, g_link2[3] & 0xFFFFu);
 +        nb_diag(msg);
-+        printf("netbox: PHY link DOWN (BMSR=0x%04x)\n", (unsigned int)g_last_bmsr & 0xFFFF);
++        printf("netbox: link gate FAILED code=%d rc=%d (not resident)\n",
++               g_phy_code, g_link_rc);
 +        return nb_fail(NB_STAGE_LINK);
++    }
++
++    /* 链路已确认。把现场灌进 g_last_bmsr / g_link_mode ——
++     * 后面几关的提示串与最后的容量上报都要用（v17 之前这一步是
++     * nb_wait_link() 做的，现在由 nb_link_gate() 的完整快照取代）。 */
++    g_link_up   = 1;
++    g_last_bmsr = g_link2[1] & 0xFFFFu;
++    g_link_mode = g_link2[8] & 0xFFu;
++    {
++        char msg[128];
++        sprintf(msg, "link ok: code=%d rc=%d bmsr=%04x sts=%04x lm=%02x emac3fdx=%u",
++                g_phy_code, g_link_rc, g_last_bmsr, g_link2[6] & 0xFFFFu,
++                g_link_mode, g_link2[7] & 1u);
++        nb_diag(msg);
 +    }
 +
 +    /*
@@ -1946,10 +2045,10 @@ index 0000000..aafd14a
 +}
 diff --git a/modules/netbox/netbox_imports.h b/modules/netbox/netbox_imports.h
 new file mode 100644
-index 0000000..0df905e
+index 0000000..19f5339
 --- /dev/null
 +++ b/modules/netbox/netbox_imports.h
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,125 @@
 +/*
 + * netbox_imports.h - PS2 NetBox 驱动对外的全部导入声明
 + *
@@ -2047,6 +2146,33 @@ index 0000000..0df905e
 + *    0xFFFF，BMSR 的 link 位就是 1，正是"链路 OK"假阳性的来源）。 */
 +#define I_smap_get_phy_dump DECLARE_IMPORT(7, smap_get_phy_dump)
 +
++/* 8: 把 PHY 初始化补跑一遍 + 拿回现场（v17 新增，这一版的核心）。
++ *    int smap_phy_reinit(unsigned int *out, int n)      —— out 至少 12 个 u32
++ *    out[0]=BMCR out[1]=BMSR out[2]=PHYIDR1 out[3]=PHYIDR2
++ *    out[4]=ANAR out[5]=ANLPAR out[6]=PHYSTS
++ *    out[7]=EMAC3 MODE1 的 FDX 位（0/1）  out[8]=LinkMode  out[9]=LinkStatus
++ *    out[10]=ANER  out[11] 低 4 位 = 结果码：0 链路已就绪 / 1 PHY 复位没完成
++ *                                  / 2 自协商与手动 100M/10M 都试过仍不 up
++ *    返回 0 = 链路就绪 / 1 = 没就绪（细节看 out[11]）/ 2 = 参数错
++ *
++ *    ★ 它是【有界】的：总耗时上限约 10.6 秒（复位 0.2s + 自协商 2x3s +
++ *      手动 2x2.2s）。上游的 InitPHY() 不能直接用 —— 它第 257 行的
++ *      `goto RepeatAutoNegoProcess` 会清零重试计数，网线没插时【永不返回】，
++ *      而这里的调用点在 IOP 的 _start() 里、被 EE 同步等待，直接就是启动卡死。
++ *
++ *    为什么必须有它 —— SMAPStart() 里那一行是
++ *        result = (!(BMSR & LINK)) ? InitPHY(...) : 0;
++ *    也就是「BMSR 报有链路就不初始化 PHY」。可 InitPHY() 里除了 DP83846
++ *    专有 workaround（ID 不匹配时跳过是对的）之外，还有两件任何 PHY 都必须
++ *    做的事：算出 LinkMode、**把 FDX/流控写进 EMAC3 MODE1**。
++ *    这一段在那段 if 之外，本该人人执行 —— 却会因为 BMSR 的 link 位读成 1
++ *    而整段被跳过（PHY 不响应时 MDIO 悬空=0xFFFF，bit2 恰好是 1）。
++ *    结果 MAC 停在 smap_init() 硬编码的 100M 全双工，与 PHY 实际模式可能
++ *    不符 => 收帧全错 => "发得出去、一个回包都收不到"。
++ *    v16 实机报回 "PHY not DP83846 id1=0143 id2=BC" 说明 PHY 是应答的、
++ *    MDIO 是通的，所以第一件该做的事就是把这一刀补回来并看现场。 */
++#define I_smap_phy_reinit DECLARE_IMPORT(8, smap_phy_reinit)
++
 +#endif /* __NETBOX_IMPORTS_H__ */
 diff --git a/modules/network/smap-ingame/Makefile b/modules/network/smap-ingame/Makefile
 index c99608d..aae4df1 100644
@@ -2061,10 +2187,10 @@ index c99608d..aae4df1 100644
  
 diff --git a/modules/network/smap-ingame/exports.tab b/modules/network/smap-ingame/exports.tab
 new file mode 100644
-index 0000000..ee5e045
+index 0000000..10d2153
 --- /dev/null
 +++ b/modules/network/smap-ingame/exports.tab
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,105 @@
 +/*
 + * [NETBOX] 把 smap-ingame 变成「可被外部模块复用的 SMAP 原始帧收发器」。
 + *
@@ -2126,6 +2252,28 @@ index 0000000..ee5e045
 + *     另外 PHY ID 能判断 PHY 到底有没有应答：不响应时 MDIO 常读到 0xFFFF，
 + *     BMSR 的 link 位就是 1，那正是"链路 OK"假阳性的来源。
 + *
++ * v17（2026-09-25）再新增一个符号 —— 起因：v16 实机报回
++ * "FAIL link PHY not DP83846 id1=0143 id2=BC"，也就是**PHY 在、MDIO 通、
++ * ID 合法，只是它不是 DP83846**（v16 的判据太严，那份判据已放宽）。
++ * 但放宽判据只是"不再自己把自己拦住"，链路本身还没被证明是通的。
++ * 回头读 SMAPStart() 才发现真正的问题在这儿：
++ *
++ *     result = (!(BMSR & LINK)) ? InitPHY(&SmapDriverData) : 0;
++ *
++ *   ⇒ **BMSR 报"有链路"时 InitPHY() 根本不会被调用**。而 InitPHY() 里
++ *     除了一段 DP83846 专有 workaround 之外，还有两件【任何 PHY 都必须做】
++ *     的事：算出 LinkMode、**把 FDX/流控写进 EMAC3 MODE1**。
++ *     这一段在 ID 判断之外，本该人人执行 —— 却因为 BMSR 那一位读成 1
++ *     而整段被跳过（PHY 不响应时 MDIO 悬空读回 0xFFFF，bit2 恰好是 1；
++ *     链路刚插上没协商完时 bit2 也会瞬间为 1）。
++ *     结果 MAC 停在 smap_init() 硬编码的 100M 全双工，与 PHY 实际模式
++ *     可能不符 => 收帧全错 => "发得出去、一个回包都收不到"。
++ *
++ *   smap_phy_reinit()  —— 主动把 InitPHY() 补跑一遍（链路已 up 时只做
++ *     MAC 侧对齐、不打断链路），并把 BRCM/BMSR/ANAR/ANLPAR/PHYSTS/
++ *     EMAC3-MODE1/LinkMode 现场交出来，让设置页能直接判断
++ *     "链路到底通没通、通在什么速率什么双工"。
++ *
 + * 编号 —— netbox_imports.h 里的 DECLARE_IMPORT 必须与这里严格一致：
 + *   0  _start                沿用其它模块的导出模板（v1 格式约定）
 + *   1  smap_set_rx_hook      void smap_set_rx_hook(void *fn)
@@ -2135,6 +2283,7 @@ index 0000000..ee5e045
 + *   5  smap_get_rx_hook      void *smap_get_rx_hook(void)
 + *   6  smap_get_rx_diag      int  smap_get_rx_diag(unsigned int *out, int n)
 + *   7  smap_get_phy_dump     int  smap_get_phy_dump(unsigned int *out, int n)   (返回链路模式码)
++ *   8  smap_phy_reinit       int  smap_phy_reinit(unsigned int *out, int n)     (补跑 InitPHY + 现场快照)
 + */
 +DECLARE_EXPORT_TABLE(netboxh, 1, 0)
 +	DECLARE_EXPORT(_start)
@@ -2145,12 +2294,26 @@ index 0000000..ee5e045
 +	DECLARE_EXPORT(smap_get_rx_hook)
 +	DECLARE_EXPORT(smap_get_rx_diag)
 +	DECLARE_EXPORT(smap_get_phy_dump)
++	DECLARE_EXPORT(smap_phy_reinit)
 +END_EXPORT_TABLE
 diff --git a/modules/network/smap-ingame/imports.lst b/modules/network/smap-ingame/imports.lst
-index 22375b2..ae0583f 100644
+index 22375b2..f380f5a 100644
 --- a/modules/network/smap-ingame/imports.lst
 +++ b/modules/network/smap-ingame/imports.lst
-@@ -14,6 +14,20 @@ smsutils_IMPORTS_start
+@@ -7,6 +7,12 @@ dmacman_IMPORTS_end
+ thbase_IMPORTS_start
+ I_DelayThread
+ I_SetAlarm
++/* [NETBOX] v17 新增：smap_phy_reinit() 在补跑 PHY 初始化前要先撤销链路检查
++ * 闹钟（它的回调 CheckLinkStatus() 在链路丢失时会调 InitPHY()，而 InitPHY()
++ * 遇到链路不通会无限循环 —— 见 smap_phy_reinit() 上方注释）。
++ * 撤销要用 CancelAlarm(cb, arg)（thbase.h 第 163 行，ordinal 37），
++ * 参数是【回调 + 参数】而不是时钟。 */
++I_CancelAlarm
+ I_USec2SysClock
+ thbase_IMPORTS_end
+ 
+@@ -14,6 +20,20 @@ smsutils_IMPORTS_start
  I_mips_memcpy
  smsutils_IMPORTS_end
  
@@ -2317,26 +2480,31 @@ index 76da054..0743d6b 100644
      } else
          result = MODULE_RESIDENT_END; // Initialized ok.
 diff --git a/modules/network/smap-ingame/main.h b/modules/network/smap-ingame/main.h
-index b3b1796..a9d60c3 100644
+index b3b1796..d557d8e 100644
 --- a/modules/network/smap-ingame/main.h
 +++ b/modules/network/smap-ingame/main.h
-@@ -30,6 +30,14 @@ int SMAPStart(void);
+@@ -30,6 +30,19 @@ int SMAPStart(void);
  void SMAPStop(void);
  int SMAPGetMACAddress(unsigned char *buffer);
  
 +/* [NETBOX] netboxh 库额外导出的符号（编号必须与 exports.tab 严格一致）：
 + *   1 smap_set_rx_hook / 2 SMAPSendPacket / 3 SMAPGetMACAddress / 4 smap_get_link_status
-+ *   5 smap_get_rx_hook / 6 smap_get_rx_diag / 7 smap_get_phy_dump */
++ *   5 smap_get_rx_hook / 6 smap_get_rx_diag / 7 smap_get_phy_dump / 8 smap_phy_reinit
++ * 编号就是 DECLARE_EXPORT 在 exports.tab 里的下标（0 = _start）。
++ * ps2sdk 的 loadcore 按 fptps[stubtmp] 取，没有 -1 偏移；越界会被 cleanStub()
++ * 改写成 jr $ra 的空桩 —— 不报错，只是静默变哑巴。
++ * 改完务必跑 tools/irx_ordinal_check.py，它会做 ordinal/导出顺序/imports.lst 三方核对。 */
 +int smap_get_link_status(unsigned int *pBMSR, unsigned int *pANLPAR, unsigned int *pLinkMode);
 +void *smap_get_rx_hook(void);
 +int smap_get_rx_diag(unsigned int *out, int n);
 +int smap_get_phy_dump(unsigned int *out, int n);
++int smap_phy_reinit(unsigned int *out, int n);
 +
  void SMapLowLevelInput(struct pbuf *pBuf);
  
  #include "xfer.h"
 diff --git a/modules/network/smap-ingame/smap.c b/modules/network/smap-ingame/smap.c
-index f43eb20..d11b041 100644
+index f43eb20..110271a 100644
 --- a/modules/network/smap-ingame/smap.c
 +++ b/modules/network/smap-ingame/smap.c
 @@ -355,9 +355,32 @@ static unsigned int LinkCheckTimerCB(struct SmapDriverData *SmapDrivPrivData)
@@ -2403,7 +2571,7 @@ index f43eb20..d11b041 100644
              SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_RXEND;
              HandleRxIntr(&SmapDriverData);
          }
-@@ -674,3 +714,210 @@ int SMAPGetMACAddress(unsigned char *buffer)
+@@ -674,3 +714,429 @@ int SMAPGetMACAddress(unsigned char *buffer)
  
      return 0;
  }
@@ -2613,6 +2781,225 @@ index f43eb20..d11b041 100644
 +#undef PUT16
 +
 +    return code;
++}
++
++/* ---------------------------------------------------------------------------
++ * [v17] 链路重初始化 —— 这一版的核心，说明为什么要它。
++ *
++ * SMAPStart() 里决定"要不要初始化 PHY"的只有一行：
++ *     result = (!(_smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR)
++ *                 & SMAP_PHY_BMSR_LINK)) ? InitPHY(&SmapDriverData) : 0;
++ * 也就是 —— 【BMSR 报"有链路"时，InitPHY() 根本不会被调用】。
++ * 上游敢这么写，是因为它假设 SMAP 已经被"上一个 SMAP 实例"初始化好了
++ * （注释原文：It should have already been previously initialized
++ *  successfully by the previous instance of SMAP）。
++ *
++ * 但 InitPHY() 其实同时承担三件必须做的事，全都在那一个三元表达式后面：
++ *   ① 真正确立链路：软复位 PHY -> 自协商(BMCR.RSAN) -> 最多 3 轮重试 ->
++ *      手动 100M 半双工 -> 手动 10M 半双工
++ *   ② 由 BMCR/ANAR/ANLPAR 算出 LinkMode
++ *      （bit0..3：1=10M半 2=10M全 4=100M半 8=100M全）
++ *   ③ ★把 FDX 与流控写进 EMAC3 MODE1★  <- 让 MAC 和 PHY 对齐的那一刀
++ *
++ * 只要 BMSR 的 link 位恰好读成 1，①②③ 全部被跳过：
++ *   - PHY 不响应时 MDIO 数据线悬空、读回 0xFFFF，而 bit2 恰好是 1；
++ *   - 链路刚插上、PHY 还没协商完，link 位也会瞬间为 1。
++ * 于是 MAC 停在 smap_init() 写进去的【硬编码 100M 全双工】，而 PHY 实际
++ * 可能是 10M 半双工 / 100M 半双工 => 双工不匹配 => 本侧发出去的帧对端
++ * 收得到，对端回过来的帧本侧 MAC 全部采样错 => "发得出去、一个回包都没有"。
++ * 这和 xfer.c 里那条"收帧带错误标志 -> 空 if 静默丢弃"互为表里：
++ * 一个在 MAC 里丢，一个在驱动里丢，屏幕上看不出区别。
++ *
++ * 注意第 265-304 行那段 DP83846 专有 workaround 在 ID 不匹配时会被跳过 ——
++ * 那是【正确】的（那些是 DP83846 自己的 errata 与 10BTSCR 设置）；
++ * 而第 306-338 行的 LinkMode 计算与 EMAC3 同步在这段 if 之外，任何 PHY 都执行。
++ * 所以这一版要做的就是把这后一部分补回来。
++ *
++ * 但【不能直接调 InitPHY()】—— 它里面有一个会无限循环的 goto
++ * （第 257 行 `goto RepeatAutoNegoProcess` 会清零重试计数），
++ * 网线没插 / 对端没上电时它永远不返回；而本函数是在 netbox.irx 的
++ * _start() 里被调的，_start() 又由 EE 侧的 SifExecModuleBuffer() 同步等待，
++ * 直接后果就是 OPL 启动画面永久卡死。
++ * 详细拆解与替代实现见下面 smap_phy_reinit() 的注释。
++ * --------------------------------------------------------------------------- */
++
++/* 按当前 PHY 现场重算 LinkMode，并把 FDX / 流控写进 EMAC3 MODE1。
++ * 这是 InitPHY() 第 306-338 行的等价物，单独摘出来，
++ * 好在"链路已经 up、不该打断它"时也能做 MAC 侧对齐。 */
++static void SmapSyncLinkMode(void)
++{
++    volatile u8 *base = SmapDriverData.emac3_regbase;
++    u16 bmcr, anar, anlpar, value;
++    unsigned int LinkSpeed100M, LinkFDX, FlowControlEnabled;
++    u32 emac3_value;
++
++    bmcr = _smap_read_phy(base, SMAP_DsPHYTER_BMCR);
++    anar = _smap_read_phy(base, SMAP_DsPHYTER_ANAR);
++    anlpar = _smap_read_phy(base, SMAP_DsPHYTER_ANLPAR);
++
++    FlowControlEnabled = 0;
++    if (bmcr & SMAP_PHY_BMCR_ANEN) {
++        value = anar & anlpar;
++        LinkSpeed100M = (value & 0x180) != 0;
++        LinkFDX = (value & 0x140) != 0;
++        if (LinkFDX)
++            FlowControlEnabled = (value & 0x400) != 0;
++    } else {
++        LinkSpeed100M = (bmcr >> 13) & 1;
++        LinkFDX = (bmcr >> 8) & 1;
++        FlowControlEnabled = (SmapConfiguration >> 10) & 1;
++    }
++
++    SmapDriverData.LinkMode = LinkSpeed100M ? (LinkFDX ? 8 : 4) : (LinkFDX ? 2 : 1);
++    if (FlowControlEnabled)
++        SmapDriverData.LinkMode |= 0x40;
++
++    emac3_value = SMAP_EMAC3_GET32(SMAP_R_EMAC3_MODE1) & 0x67FFFFFF;
++    if (LinkFDX)
++        emac3_value |= SMAP_E3_FDX_ENABLE;
++    if (FlowControlEnabled)
++        emac3_value |= SMAP_E3_FLOWCTRL_ENABLE | SMAP_E3_ALLOW_PF;
++    SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE1, emac3_value);
++}
++
++/*
++ * 主动跑一遍 PHY 初始化（时间有上限）+ MAC 侧速率/双工同步，交出相机快照。
++ *
++ * 【为什么不用上游的 InitPHY()】两个硬问题：
++ *
++ *   1) ★它会无限循环★ —— InitPHY() 第 257 行是 `goto RepeatAutoNegoProcess`，
++ *      而这个标签在 `for (AutoNegoRetries = 0; ...)` 之前：跳回去会把重试
++ *      计数清零。于是"自协商 3 轮 + 手动 100M + 手动 10M 全失败"这组动作
++ *      每轮约 29 秒，网线没插 / 对端没上电时【永远不会退出】。
++ *      而本函数是在 netbox.irx 的 _start() 里被调的，_start() 又由
++ *      SifExecModuleBuffer() 在 EE 侧同步等待 —— 直接后果就是 OPL 启动画面
++ *      永久卡死。这正是"链路不通"时最可能踩到的坑。
++ *   2) 它的软复位等待太严苛：第 130-134 行写完 BMCR.RST 后第一次读，只要
++ *      RST 位还在（PHY 复位慢一点点）就 `return -1` 提前退出，后面的自协商
++ *      与 EMAC3 同步就全不做了。
++ *
++ * 所以这里写一个有界版本：只做 InitPHY() 里【与 PHY 型号无关】的那部分
++ * （不碰 DP83846 专有寄存器 —— 本机实测那颗 PHY 的 ID 是 0x0143BCxx，
++ * 不是 DP83846，那些 workaround 本来也该跳过）。
++ * 时间上限：复位 0.2s + 自协商 2×3s + 手动 2×2.2s ≈ 10.6 秒。
++ *
++ * 另外，动手前先撤掉 SMAP 的链路检查闹钟：它的回调 CheckLinkStatus() 在
++ * BMSR 报无链路时会调 InitPHY()，也就是上面那个无限循环。做完之后只在
++ * "链路真的起来了"时才把闹钟装回去（链路不通时装回去没有意义，只会挂死）。
++ *
++ * out[] 布局（调用方传 >= 12 个元素）：
++ *   0 BMCR  1 BMSR  2 PHYIDR1  3 PHYIDR2  4 ANAR  5 ANLPAR
++ *   6 PHYSTS  7 EMAC3 MODE1 的 FDX 位（0/1）  8 LinkMode  9 LinkStatus
++ *   10 ANER   11 结果码：0 = 链路已就绪 / 1 = PHY 复位没完成 / 2 = 链路没起来
++ *               （bit4 恒为 1，表示这是"主动做完一遍"的结果而不是快照）
++ *
++ * 返回：0 = 链路就绪；1 = 没就绪（细节看 out[11]）；2 = 参数错误
++ */
++int smap_phy_reinit(unsigned int *out, int n)
++{
++    volatile u8 *base = SmapDriverData.emac3_regbase;
++    u16 v;
++    int i, rc = 2, restarted = 0;
++
++    if (out == NULL || n < 12)
++        return 2;
++
++    /* --- 0) 撤掉链路检查闹钟，避开 InitPHY() 的无限循环（见上方说明）---
++     *
++     * ★ 注意 ps2sdk thbase.h 的签名，它要的是【回调 + 参数】而不是时钟：
++     *     int      SetAlarm   (iop_sys_clock_t *clock, cb, void *arg);
++     *     int      CancelAlarm(                       cb, void *arg);
++     *   所以撤销时必须把上面 SetAlarm 那一对原样传回去（本文件第 485 行
++     *   就是 SetAlarm(&LinkCheckTimer, (void*)&LinkCheckTimerCB, &SmapDriverData)）。
++     *   写成 CancelAlarm(&SmapDriverData.LinkCheckTimer) 是错的 —— 参数个数
++     *   和类型都不对，编译期就过不去。
++     *   另外 CancelAlarm 属于 thbase（ordinal 37），
++     *   必须同时出现在 imports.lst 的 thbase_IMPORTS_start 块里，
++     *   否则 netbox/smap 模块装载时会因找不到导入而失败。 */
++    if (SmapDriverData.EnableLinkCheckTimer) {
++        CancelAlarm((void *)&LinkCheckTimerCB, &SmapDriverData);
++        restarted = 1;
++    }
++
++    /* --- 1) 软复位 PHY，最多等 200ms --- */
++    _smap_write_phy(base, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_RST);
++    for (i = 0; i < 200; i++) {
++        if (!(_smap_read_phy(base, SMAP_DsPHYTER_BMCR) & SMAP_PHY_BMCR_RST))
++            break;
++        DelayThread(1000); /* 1ms */
++    }
++    if (i >= 200) {
++        rc = 1; /* RST 位一直不清 —— PHY 连写操作都没在响应 */
++        goto done;
++    }
++
++    /* --- 2) 链路本来就好在的话就别打断它 --- */
++    v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++    if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
++        rc = 0;
++        goto sync;
++    }
++
++    /* --- 3) 触发自协商（BMCR.ANEN|RSAN），最多两轮、每轮最多 3 秒 --- */
++    for (i = 0; i < 2 && rc != 0; i++) {
++        int k;
++
++        _smap_write_phy(base, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_ANEN | SMAP_PHY_BMCR_RSAN);
++        for (k = 0; k < 30; k++) { /* 30 x 100ms = 3s */
++            DelayThread(100 * 1000);
++            v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++            if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
++                rc = 0;
++                break;
++            }
++        }
++    }
++
++    /* --- 4) 自协商不成，手动试 100M 半双工、再 10M 半双工 --- */
++    for (i = 0; i < 2 && rc != 0; i++) {
++        int k;
++
++        _smap_write_phy(base, SMAP_DsPHYTER_BMCR,
++                        (i == 0) ? SMAP_PHY_BMCR_100M : SMAP_PHY_BMCR_10M);
++        DelayThread(200 * 1000);          /* 给 PHY 稳定时间 */
++        for (k = 0; k < 20; k++) {        /* 20 x 100ms = 2s */
++            DelayThread(100 * 1000);
++            v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++            if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
++                rc = 0;
++                break;
++            }
++        }
++    }
++
++sync:
++    /* --- 5) 结算 LinkMode 并写进 EMAC3 MODE1（与 PHY 型号无关，
++     *        这正是 SMAPStart() 会因为 BMSR 报有链路而跳过的那一刀）--- */
++    SmapSyncLinkMode();
++
++done:
++    SmapDriverData.LinkStatus = (rc == 0) ? 1 : 0;
++
++    /* --- 6) 只有链路真的起来了才把链路检查闹钟装回去 --- */
++    if (restarted && rc == 0) {
++        USec2SysClock(5000000, &SmapDriverData.LinkCheckTimer);
++        SetAlarm(&SmapDriverData.LinkCheckTimer, (void *)&LinkCheckTimerCB, &SmapDriverData);
++    }
++
++    out[0] = _smap_read_phy(base, SMAP_DsPHYTER_BMCR);
++    out[1] = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++    out[2] = _smap_read_phy(base, SMAP_DsPHYTER_PHYIDR1);
++    out[3] = _smap_read_phy(base, SMAP_DsPHYTER_PHYIDR2);
++    out[4] = _smap_read_phy(base, SMAP_DsPHYTER_ANAR);
++    out[5] = _smap_read_phy(base, SMAP_DsPHYTER_ANLPAR);
++    out[6] = _smap_read_phy(base, SMAP_DsPHYTER_PHYSTS);
++    out[7] = (SMAP_EMAC3_GET32(SMAP_R_EMAC3_MODE1) & SMAP_E3_FDX_ENABLE) ? 1u : 0u;
++    out[8] = (unsigned int)SmapDriverData.LinkMode;
++    out[9] = (unsigned int)SmapDriverData.LinkStatus;
++    out[10] = _smap_read_phy(base, SMAP_DsPHYTER_ANER);
++    out[11] = (unsigned int)rc | (1u << 4);
++
++    return (rc == 0) ? 0 : 1;
 +}
 diff --git a/modules/network/smap-ingame/xfer.c b/modules/network/smap-ingame/xfer.c
 index 25111a0..d37bccb 100644
@@ -3125,10 +3512,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..9865bd6 100644
+index 1054228..08c33bf 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,200 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,204 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -3152,35 +3539,45 @@ index 1054228..9865bd6 100644
 +    //   netbox LOAD REFUSED        -> 第 2 关没过：IOP 拒绝加载 netbox.irx
 +    //                                 （库名/版本/函数号对不上，或导入解析不到）
 +    //   driver START FAILED        -> 装上了但 _start() 早退
-+    //   FAIL ... (v16)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
++    //   FAIL ... (v17)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
 +    //                                 设备也读不出来，不如直接报），并把失败现场
-+    //                                 整串编进返回值：
-+    //                                 [格式 A · v15 五字段，仍用于非 PHY 的失败]
-+    //                                     ret = 1000000 + stage*100000 + lk*10000
-+    //                                                 + rx*1000 + e*100 + hook
++    //                                 整串编进返回值。
++    //
++    //                                 v17 起统一用【位打包诊断包】（旧 v15 的十进制
++    //                                 五字段编码已废弃），布局见驱动 netbox_bd.c 的
++    //                                 NB_V17_MARK 注释：
++    //                                   bit26..29 stage       哪一关报的
++    //                                   bit21..25 code        诊断码（NB_D_*）
++    //                                   bit13..20 BMSR 低 8 位 ★含 bit2 Link / bit5 ANCP
++    //                                   bit5..12  PHYSTS 低 8 位
++    //                                   bit0..4   LinkMode    驱动结算的速率+双工
++    //
 +    //                                 stage（名字直接印在标签上，与驱动 NB_STAGE_* 一致）:
 +    //                                   hook    钩子自检失败（netboxh 导入是空桩）
-+    //                                   link    ★PHY 没有链路★（网线/对端，最常见）
++    //                                   link    ★PHY/链路★（网线、对端、PHY 身份）
 +    //                                   mac     MAC 全零（smap_init 没跑完）
 +    //                                   tx      一帧都发不出去（SmapIsInitialized=0）
 +    //                                   noreply 发得出去但收不到任何回包
 +    //                                   identify 收到回包但 IDENTIFY 对不上
 +    //                                   read0   读 LBA0 失败
 +    //                                   bootsig LBA0 读到了但没有 55AA 引导签名
-+    //                                 lk = PHY 现场链路模式码：
-+    //                                   0 无链路 / 1 10M半 / 2 10M全 /
-+    //                                   3 100M半 / 4 100M全 / 5 PHY 不响应
-+    //                                 rx = MAL 收到过帧的摘要（0 = 一帧都没到过 PS2）
-+    //                                 e  = 收帧错误类别（0 无错 / 1 BD 丢帧 / 2 BAD_FCS
-+    //                                      / 3 短帧 / 4 其它收帧错 / 5 发帧错误）
-+    //                                 hook = 钩子被调用次数（0..99）
-+    //                                 ★ 关键读法：lx/rx/e 这三个一起看就能把
-+    //                                   "盒子没回话"和"回了但被以太网层丢掉"分开。
-+    //                                 [格式 B · v16 PHY 身份诊断包，见下面 0x40000000 分支]
-+    //                                   只在"PHY 的 ID 认不出来"时出现，把含糊的
-+    //                                   lk=5 拆成三种病，并带上 PHYIDR1/PHYIDR2 原值。
-+    //   resident (raw SMAP v16)    -> 自检全过（钩子自检 + PHY 身份 + 链路 + 真读 LBA0
-+    //                                 + 55AA 校验），BD 设备已注册，mass0: 应该能挂上。
++    //
++    //                                 code（只在 stage=link 时逐个译成人话）：
++    //                                   1 MDIO 全 0（EMAC3 没在跑）
++    //                                   2 MDIO 全 F（该地址上没有 PHY）
++    //                                   3 合法 ID 但不是 DP83846，且没链路
++    //                                   5 BMSR 读不回来
++    //                                   6 ★BMSR 明确报没有链路★（最常见）
++    //                                   8 PHY 软复位卡住（bmcr 的 RST 位不清）
++    //
++    //                                 ★ 关键读法：非 link 关的失败会印
++    //                                   "[link ok lm=XX bmsr=XX]" ——
++    //                                   看到它说明【链路是好的】，问题在后面
++    //                                   某一步（协议/扇区/文件系统），
++    //                                   与网线、PHY 都无关了。
++    //   resident (raw SMAP v17)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //                                 + 链路 + 真读 LBA0 + 55AA 校验），BD 设备已注册，
++    //                                 mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
 +        static char netboxStatus[160];
@@ -3188,7 +3585,7 @@ index 1054228..9865bd6 100644
 +        static const char *stageName[] = {
 +            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig"
 +        };
-+        int stage = 0, lk = 0, rx = 0, e = 0, hook = 0;
++        int stage = 0;
 +
 +        if (!gEnableNetBox)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox Network: OFF");
@@ -3206,93 +3603,87 @@ index 1054228..9865bd6 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus),
 +                     "NetBox: ON, smap ok, netbox LOAD REFUSED (id=%d)", gNetBoxLoadID);
 +        else if (gNetBoxStartRC & 0x40000000) {
-+            /* [v16] PHY 身份诊断包。位布局与 modules/netbox/netbox_bd.c 的
-+             * NB_V16_MARK 注释严格对应：
-+             *   bit27..29 code  / bit24..26 stage / bit8..23 PHYIDR1 / bit0..7 PHYIDR2>>8
++            /* [v17] 链路诊断包。位布局与 modules/netbox/netbox_bd.c 的
++             * NB_V17_MARK 注释严格对应：
++             *   bit26..29 stage / bit21..25 code / bit13..20 BMSR 低 8 位
++             *   bit5..12 PHYSTS 低 8 位 / bit0..4 LinkMode 低 5 位
 +             *
-+             * ★ 这个分支必须排在下面的 ">= 1000000" 之前：打包值首字节是
-+             *   0x40，即 1073741824，比 1000000 大得多，否则会被 v15 那套
-+             *   十进制解码吃掉、解出一堆垃圾数字。
++             * ★ 这个分支必须排在下面 "!= 0" 之前：打包值首字节是 0x40，
++             *   即 1073741824 —— 不排在前面就会被当成普通非零值，只印出
++             *   一串十进制数字。
 +             *
-+             * 它只在"PHY 的 ID 认不出来"这条路上出现，作用是把 v15 里
-+             * 含糊的 lk=5 拆成三种修法完全不同的病：
-+             *   ALL ZERO -> MDIO 轮询超时，操作根本没完成（EMAC3 没在跑）
-+             *   NO PHY   -> MDIO 数据线悬空 0xFFFF，这个地址上没有 PHY
-+             *   not DP83846 -> PHY 在、ID 也合法，是判据太严（上游并不这么判）
-+             * 后两种情况下 id1/id2 就是 PHYIDR1 与 PHYIDR2 的高字节原值。 */
-+            int code = (gNetBoxStartRC >> 27) & 7;
-+            unsigned int idr1 = ((unsigned int)gNetBoxStartRC >> 8) & 0xFFFFu;
-+            unsigned int idr2hi = (unsigned int)gNetBoxStartRC & 0xFFu;
++             * 两个字节就是链路位所在的地方，读法：
++             *   BMSR bit2 = Link Status（MII 标准，最权威）
++             *   BMSR bit5 = Auto-Negotiation Complete
++             *   PHYSTS bit0/1/2 = link / 10M / 全双工（DP83846 扩展位，仅参考）
++             * 例：bmsr=6D 表示 bit2=1(有链路) + bit5=1(协商完成) + bit3=1(支持协商)
++             *     + bit0=1(有扩展寄存器)。 */
++            unsigned int v = (unsigned int)gNetBoxStartRC;
++            int code = (int)((v >> 21) & 0x1Fu);
++            unsigned int bmsr = (v >> 13) & 0xFFu;
++            unsigned int sts = (v >> 5) & 0xFFu;
++            int lm = (int)(v & 0x1Fu);
 +
-+            stage = (gNetBoxStartRC >> 24) & 7;
-+            if (stage < 1 || stage > 8)
-+                stage = 0;
-+
-+            switch (code) {
-+            case 1: /* PHYIDR 全 0x0000 */
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s PHY mdio ALL ZERO id1=0000 (v16)", stageName[stage]);
-+                break;
-+            case 2: /* PHYIDR 全 0xFFFF —— 数据线悬空 */
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s NO PHY (mdio floats FFFF) (v16)", stageName[stage]);
-+                break;
-+            case 3: /* 合法 ID 但不是 DP83846 */
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s PHY not DP83846 id1=%04X id2=%02X (v16)",
-+                         stageName[stage], idr1, idr2hi);
-+                break;
-+            case 4: /* 一个 0 一个非 0：需要看原值 */
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s PHY mdio mixed id1=%04X id2=%02X (v16)",
-+                         stageName[stage], idr1, idr2hi);
-+                break;
-+            default:
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s phy code=%d id1=%04X id2=%02X (v16)",
-+                         stageName[stage], code, idr1, idr2hi);
-+                break;
-+            }
-+        } else if (gNetBoxStartRC >= 1000000) {
-+            /* v15 编码：1000000 + stage*100000 + lk*10000 + rx*1000 + e*100 + hook
-+             * 每档宽度与驱动侧一致（stage<=8、lk<=5、rx<=9、e<=5、hook<=99）。 */
-+            int v = gNetBoxStartRC - 1000000;
-+
-+            stage = v / 100000; v %= 100000;
-+            lk    = v / 10000;  v %= 10000;
-+            rx    = v / 1000;   v %= 1000;
-+            e     = v / 100;    v %= 100;
-+            hook  = v;
-+
++            stage = (int)((v >> 26) & 0x0Fu);
 +            if (stage < 1 || stage > 8)
 +                stage = 0; /* 防越界，stageName[0] = "?" */
 +
-+            if (stage == 2 && lk == 5)
-+                /* ★v16 之后这一支已【不可达】：lk==5（PHY 的 ID 认不出来）
-+                 * 现在会被上面的 v16 打包分支接走，并带上 PHYIDR1/PHYIDR2
-+                 * 的原值。保留它只是兜底（万一打包值恰好落进 v15 的区间）。 */
++            if (stage == 2) {
++                /* 失败在"PHY/链路"这一关 —— 把 code 逐个译成人话，
++                 * 因为这一关的 code 直接指向修法。 */
++                switch (code) {
++                case 1:
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link PHY mdio ALL ZERO - EMAC3 not running (v17)");
++                    break;
++                case 2:
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link NO PHY (mdio floats FFFF) - check port (v17)");
++                    break;
++                case 3:
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link PHY non-DP83846 + BMSR unreadable (v17)");
++                    break;
++                case 5:
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link BMSR unreadable bmsr=%02X sts=%02X (v17)",
++                             bmsr, sts);
++                    break;
++                case 8:
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link PHY reset stuck (bmcr RST never clears) (v17)");
++                    break;
++                default:
++                    /* ★最可能的一条★ —— BMSR 明确报"没有链路"。
++                     * bmsr/sts/lm 三个值一起看就能分清：
++                     *   bmsr 的 bit2 为 0      -> PHY 自己说没链路（网线/对端）
++                     *   sts 的 bit0 也是 0     -> 两个寄存器一致，链路确实没起来
++                     *   lm 全 0                -> LinkMode 根本没被算出来
++                     * 例：bmsr=60 sts=00 lm=00 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL link DOWN bmsr=%02X sts=%02X lm=%02X (v17)",
++                             bmsr, sts, lm);
++                    break;
++                }
++            } else if (stage == 1) {
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s PHY no response (mdio stuck) (v16)", stageName[stage]);
-+            else if (stage == 2)
-+                /* PHY 身份已经过了 v16 那道闸，所以这里的"没链路"是真的没链路。 */
++                         "NetBox: FAIL hook (rx hook not installed - netboxh is a stub) (v17)");
++            } else {
++                /* 非链路关的失败 —— 说明【链路已经确认是通的】，问题在
++                 * 后面某一步（协议/事务号/扇区/文件系统）。把链路现场一起
++                 * 印出来做佐证。例：
++                 *   NetBox: FAIL noreply [link ok lm=08 bmsr=6D] (v17)
++                 *     -> 链路 100M 全双工(lm=8)、BMSR 报链路在位，
++                 *        那"收不到回包"就与网线、PHY 全都无关了。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL LINK DOWN - check cable (v16)");
-+            else if (stage == 1)
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL rx hook not installed (v16)");
-+            else
-+                /* 这条是主诊断行：stage 名字 + 链路模式 + 收帧摘要 + 错误类别 + 钩子数
-+                 * 例：NetBox: FAIL noreply lk=1 rx=0 e=0 hk=0 (v16)
-+                 *     -> 链路是 10M 半双工（盒子那头是 10M 口？），一个帧都没到过 PS2。
-+                 * （编码格式仍是 v15 那套 5 字段，只有打包的 PHY 诊断包是新格式。） */
-+                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s lk=%d rx=%d e=%d hk=%d (v16)",
-+                         stageName[stage], lk, rx, e, hook);
++                         "NetBox: FAIL %s [link ok lm=%02X bmsr=%02X] (v17)",
++                         stageName[stage], lm, bmsr);
++            }
 +        } else if (gNetBoxStartRC != 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v16)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v17)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
