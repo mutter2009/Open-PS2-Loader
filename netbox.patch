@@ -147,7 +147,7 @@ index 0b6df1f..afc3acd 100644
  typedef struct
  {
 diff --git a/include/config.h b/include/config.h
-index 3cf4be7..254b33a 100644
+index 3cf4be7..7468fbf 100644
 --- a/include/config.h
 +++ b/include/config.h
 @@ -100,6 +100,7 @@ enum CONFIG_INDEX {
@@ -158,15 +158,34 @@ index 3cf4be7..254b33a 100644
  #define CONFIG_OPL_SWAP_SEL_BUTTON      "swap_select_btn"
  #define CONFIG_OPL_PARENTAL_LOCK_PWD    "parental_lock_password"
  #define CONFIG_OPL_SFX                  "enable_sfx"
+@@ -119,6 +120,13 @@ enum CONFIG_INDEX {
+ #define CONFIG_NET_PS2_NETM           "ps2_netmask"
+ #define CONFIG_NET_PS2_GATEW          "ps2_gateway"
+ #define CONFIG_NET_PS2_DNS            "ps2_dns"
++
++// [NETBOX] NetBox 专用网络配置键（独立于 SMB 的 ps2_* 配置，互不干扰）
++#define CONFIG_NET_NETBOX_DHCP        "netbox_dhcp"
++#define CONFIG_NET_NETBOX_IP          "netbox_ip_addr"
++#define CONFIG_NET_NETBOX_NETM        "netbox_netmask"
++#define CONFIG_NET_NETBOX_GATEW       "netbox_gateway"
++#define CONFIG_NET_NETBOX_DNS         "netbox_dns"
+ #define CONFIG_NET_SMB_NB_ADDR        "smb_share_nb_addr"
+ #define CONFIG_NET_SMB_IP_ADDR        "smb_ip"
+ #define CONFIG_NET_SMB_NBNS           "smb_share_use_nbns"
 diff --git a/include/dialogs.h b/include/dialogs.h
-index f26aed9..ce10447 100644
+index f26aed9..9c5d253 100644
 --- a/include/dialogs.h
 +++ b/include/dialogs.h
-@@ -40,6 +40,7 @@ enum UI_ITEMS {
+@@ -40,6 +40,12 @@ enum UI_ITEMS {
      CFG_ENABLEILK,
      CFG_ENABLEMX4SIO,
      CFG_ENABLEBDMHDD,
 +    CFG_ENABLENETBOX, // [NETBOX] NetBox 网络硬盘开关
++    CFG_NETBOX_DHCP,  // [NETBOX] NetBox 网络配置（独立 SMB）
++    CFG_NETBOX_IP_0, CFG_NETBOX_IP_1, CFG_NETBOX_IP_2, CFG_NETBOX_IP_3,
++    CFG_NETBOX_NETMASK_0, CFG_NETBOX_NETMASK_1, CFG_NETBOX_NETMASK_2, CFG_NETBOX_NETMASK_3,
++    CFG_NETBOX_GATEWAY_0, CFG_NETBOX_GATEWAY_1, CFG_NETBOX_GATEWAY_2, CFG_NETBOX_GATEWAY_3,
++    CFG_NETBOX_DNS_0, CFG_NETBOX_DNS_1, CFG_NETBOX_DNS_2, CFG_NETBOX_DNS_3,
      CFG_LASTPLAYED,
      CFG_LBL_AUTOSTARTLAST,
      CFG_AUTOSTARTLAST,
@@ -183,10 +202,24 @@ index 4acdc9f..4d540bd 100644
  IMPORT_BIN2C(smap_irx);
  
 diff --git a/include/opl.h b/include/opl.h
-index 0d56a6b..eea28d4 100644
+index 0d56a6b..8c70a6c 100644
 --- a/include/opl.h
 +++ b/include/opl.h
-@@ -126,6 +126,7 @@ extern int smbCacheSize;
+@@ -99,6 +99,13 @@ extern int ps2_ip[4];
+ extern int ps2_netmask[4];
+ extern int ps2_gateway[4];
+ extern int ps2_dns[4];
++
++// [NETBOX] NetBox 专用网络配置（独立于 SMB 的 ps2_* 全局变量，互不干扰）
++extern int netbox_ip_use_dhcp;
++extern int netbox_ip[4];
++extern int netbox_netmask[4];
++extern int netbox_gateway[4];
++extern int netbox_dns[4];
+ extern int gETHOpMode; // See ETH_OP_MODES.
+ extern int gPCShareAddressIsNetBIOS;
+ extern int pc_ip[4];
+@@ -126,6 +133,7 @@ extern int smbCacheSize;
  extern int gEnableILK;
  extern int gEnableMX4SIO;
  extern int gEnableBdmHDD;
@@ -1322,7 +1355,7 @@ index f00bdd9..98a3232 100644
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..9729a75 100644
+index b181dec..6173456 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
 @@ -11,6 +11,7 @@
@@ -1346,12 +1379,13 @@ index b181dec..9729a75 100644
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +110,46 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +110,65 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
 +    if (gEnableNetBox && !netboxModLoaded) {
 +        int saved_dhcp;
++        int saved_ip[4], saved_mask[4], saved_gw[4], saved_dns[4];
 +
 +        // [NETBOX]
 +        // netbox 走 UDP，必须先有【完整】网络栈：
@@ -1375,12 +1409,30 @@ index b181dec..9729a75 100644
 +        //   OPL 默认 ps2_ip_use_dhcp = 1（opl.c setDefaultConfig）。netbox 这条直连
 +        //   链路上通常没有 DHCP 服务器，ethInitApplyConfig() 会白等 30 秒然后返回
 +        //   ERROR_ETH_DHCP_FAIL。而 netbox 全程用广播（255.255.255.255:30000），
-+        //   根本不需要 IP —— 所以临时关掉 DHCP 拿静态 IP，并且【忽略返回值】，
-+        //   只要 smap/ps2ip 在、ps2ip_init() 跑过就够了。
++        //   根本不需要 IP —— 所以这里用 netbox 自己的 netbox_ip_use_dhcp（默认 0，静态），
++        //   而非 SMB 的 ps2_ip_use_dhcp，并且【忽略返回值】，只要 smap/ps2ip
++        //   在、ps2ip_init() 跑过就够了。
++        // [NETBOX] 关键：把 netbox 自己的网络配置灌进 OPL 全局变量再起栈，
++        //   用完还原给 SMB —— 这样 netbox 与 SMB 的网络设置完全互不干扰。
 +        saved_dhcp = ps2_ip_use_dhcp;
-+        ps2_ip_use_dhcp = 0;
++        memcpy(saved_ip, ps2_ip, sizeof(saved_ip));
++        memcpy(saved_mask, ps2_netmask, sizeof(saved_mask));
++        memcpy(saved_gw, ps2_gateway, sizeof(saved_gw));
++        memcpy(saved_dns, ps2_dns, sizeof(saved_dns));
++
++        ps2_ip_use_dhcp = netbox_ip_use_dhcp;
++        memcpy(ps2_ip, netbox_ip, sizeof(ps2_ip));
++        memcpy(ps2_netmask, netbox_netmask, sizeof(ps2_netmask));
++        memcpy(ps2_gateway, netbox_gateway, sizeof(ps2_gateway));
++        memcpy(ps2_dns, netbox_dns, sizeof(ps2_dns));
++
 +        ethLoadInitModules();
++
 +        ps2_ip_use_dhcp = saved_dhcp;
++        memcpy(ps2_ip, saved_ip, sizeof(ps2_ip));
++        memcpy(ps2_netmask, saved_mask, sizeof(ps2_netmask));
++        memcpy(ps2_gateway, saved_gw, sizeof(ps2_gateway));
++        memcpy(ps2_dns, saved_dns, sizeof(ps2_dns));
 +
 +        LOG("[NETBOX]:\n");
 +        if (sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL) >= 0) {
@@ -1393,7 +1445,7 @@ index b181dec..9729a75 100644
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +236,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +255,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1403,7 +1455,7 @@ index b181dec..9729a75 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +873,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +892,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -1413,16 +1465,67 @@ index b181dec..9729a75 100644
              pDeviceData->bdmDeviceType = BDM_TYPE_UNKNOWN;
  
 diff --git a/src/dialogs.c b/src/dialogs.c
-index 6e19d1d..12244a0 100644
+index 6e19d1d..44afaa1 100644
 --- a/src/dialogs.c
 +++ b/src/dialogs.c
-@@ -160,6 +160,11 @@ struct UIItem diaBlockDevicesConfig[] = {
+@@ -160,6 +160,62 @@ struct UIItem diaBlockDevicesConfig[] = {
      {UI_BOOL, CFG_ENABLEBDMHDD, 1, 1, _STR_HDD_HINT, 0, 0, {.intvalue = {0, 0}}},
      {UI_BREAK},
  
 +    {UI_LABEL, 0, 1, 1, -1, -40, 0, {.label = {"NetBox", -1}}},
 +    {UI_SPACER},
 +    {UI_BOOL, CFG_ENABLENETBOX, 1, 1, -1, 0, 0, {.intvalue = {0, 0}}},
++    {UI_BREAK},
++
++    {UI_LABEL, 0, 1, 1, -1, 0, 0, {.label = {"NetBox Network", -1}}},
++    {UI_BREAK},
++    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"Use DHCP", -1}}},
++    {UI_SPACER},
++    {UI_BOOL, CFG_NETBOX_DHCP, 1, 1, -1, 0, 0, {.intvalue = {0, 0}}},
++    {UI_BREAK},
++
++    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"IP Address", -1}}},
++    {UI_SPACER},
++    {UI_INT, CFG_NETBOX_IP_0, 1,1,-1,0,0,{.intvalue = {192,192,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_IP_1, 1,1,-1,0,0,{.intvalue = {168,168,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_IP_2, 1,1,-1,0,0,{.intvalue = {0,0,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_IP_3, 1,1,-1,0,0,{.intvalue = {2,2,0,255}}},
++    {UI_BREAK},
++
++    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"Netmask", -1}}},
++    {UI_SPACER},
++    {UI_INT, CFG_NETBOX_NETMASK_0, 1,1,-1,0,0,{.intvalue = {255,255,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_NETMASK_1, 1,1,-1,0,0,{.intvalue = {255,255,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_NETMASK_2, 1,1,-1,0,0,{.intvalue = {255,255,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_NETMASK_3, 1,1,-1,0,0,{.intvalue = {0,0,0,255}}},
++    {UI_BREAK},
++
++    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"Gateway", -1}}},
++    {UI_SPACER},
++    {UI_INT, CFG_NETBOX_GATEWAY_0, 1,1,-1,0,0,{.intvalue = {192,192,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_GATEWAY_1, 1,1,-1,0,0,{.intvalue = {168,168,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_GATEWAY_2, 1,1,-1,0,0,{.intvalue = {0,0,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_GATEWAY_3, 1,1,-1,0,0,{.intvalue = {1,1,0,255}}},
++    {UI_BREAK},
++
++    {UI_LABEL, 0,1,1,-1,-40,0,{.label = {"DNS", -1}}},
++    {UI_SPACER},
++    {UI_INT, CFG_NETBOX_DNS_0, 1,1,-1,0,0,{.intvalue = {192,192,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_DNS_1, 1,1,-1,0,0,{.intvalue = {168,168,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_DNS_2, 1,1,-1,0,0,{.intvalue = {0,0,0,255}}},
++    {UI_LABEL, 0,1,1,-1,0,0,{.label = {".", -1}}},
++    {UI_INT, CFG_NETBOX_DNS_3, 1,1,-1,0,0,{.intvalue = {1,1,0,255}}},
 +    {UI_BREAK},
 +
      // buttons
@@ -1471,14 +1574,33 @@ index f0462fa..a1aefb0 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..6ca62d8 100644
+index 1054228..5712a3d 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -445,12 +445,14 @@ static void guiShowBlockDeviceConfig(void)
+@@ -440,17 +440,42 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+ static void guiShowBlockDeviceConfig(void)
+ {
+     int ret;
++    int i;
+ 
+     diaSetInt(diaBlockDevicesConfig, CFG_ENABLEILK, gEnableILK);
      diaSetInt(diaBlockDevicesConfig, CFG_ENABLEMX4SIO, gEnableMX4SIO);
      diaSetEnabled(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, !gHDDStartMode);
      diaSetInt(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, gEnableBdmHDD);
 +    diaSetInt(diaBlockDevicesConfig, CFG_ENABLENETBOX, gEnableNetBox); // [NETBOX]
++
++    // [NETBOX] NetBox 专用网络配置（独立 SMB）
++    diaSetInt(diaBlockDevicesConfig, CFG_NETBOX_DHCP, netbox_ip_use_dhcp);
++    for (i = 0; i < 4; i++) {
++        diaSetInt(diaBlockDevicesConfig, CFG_NETBOX_IP_0 + i, netbox_ip[i]);
++        diaSetInt(diaBlockDevicesConfig, CFG_NETBOX_NETMASK_0 + i, netbox_netmask[i]);
++        diaSetInt(diaBlockDevicesConfig, CFG_NETBOX_GATEWAY_0 + i, netbox_gateway[i]);
++        diaSetInt(diaBlockDevicesConfig, CFG_NETBOX_DNS_0 + i, netbox_dns[i]);
++        diaSetEnabled(diaBlockDevicesConfig, CFG_NETBOX_IP_0 + i, !netbox_ip_use_dhcp);
++        diaSetEnabled(diaBlockDevicesConfig, CFG_NETBOX_NETMASK_0 + i, !netbox_ip_use_dhcp);
++        diaSetEnabled(diaBlockDevicesConfig, CFG_NETBOX_GATEWAY_0 + i, !netbox_ip_use_dhcp);
++        diaSetEnabled(diaBlockDevicesConfig, CFG_NETBOX_DNS_0 + i, !netbox_ip_use_dhcp);
++    }
  
      ret = diaExecuteDialog(diaBlockDevicesConfig, -1, 1, NULL);
      if (ret) {
@@ -1486,14 +1608,37 @@ index 1054228..6ca62d8 100644
          diaGetInt(diaBlockDevicesConfig, CFG_ENABLEMX4SIO, &gEnableMX4SIO);
          diaGetInt(diaBlockDevicesConfig, CFG_ENABLEBDMHDD, &gEnableBdmHDD);
 +        diaGetInt(diaBlockDevicesConfig, CFG_ENABLENETBOX, &gEnableNetBox); // [NETBOX]
++
++        // [NETBOX] 读回 NetBox 网络配置
++        diaGetInt(diaBlockDevicesConfig, CFG_NETBOX_DHCP, &netbox_ip_use_dhcp);
++        for (i = 0; i < 4; i++) {
++            diaGetInt(diaBlockDevicesConfig, CFG_NETBOX_IP_0 + i, &netbox_ip[i]);
++            diaGetInt(diaBlockDevicesConfig, CFG_NETBOX_NETMASK_0 + i, &netbox_netmask[i]);
++            diaGetInt(diaBlockDevicesConfig, CFG_NETBOX_GATEWAY_0 + i, &netbox_gateway[i]);
++            diaGetInt(diaBlockDevicesConfig, CFG_NETBOX_DNS_0 + i, &netbox_dns[i]);
++        }
      }
  }
  
 diff --git a/src/opl.c b/src/opl.c
-index a6d8fa3..96c1e8c 100644
+index a6d8fa3..d798183 100644
 --- a/src/opl.c
 +++ b/src/opl.c
-@@ -139,6 +139,7 @@ int smbCacheSize;
+@@ -119,6 +119,13 @@ int ps2_ip[4];
+ int ps2_netmask[4];
+ int ps2_gateway[4];
+ int ps2_dns[4];
++
++// [NETBOX] NetBox 专用网络配置全局变量（独立于 SMB 的 ps2_*，互不干扰）
++int netbox_ip_use_dhcp;
++int netbox_ip[4];
++int netbox_netmask[4];
++int netbox_gateway[4];
++int netbox_dns[4];
+ int gETHOpMode; // See ETH_OP_MODES.
+ int gPCShareAddressIsNetBIOS;
+ int pc_ip[4];
+@@ -139,6 +146,7 @@ int smbCacheSize;
  int gEnableILK;
  int gEnableMX4SIO;
  int gEnableBdmHDD;
@@ -1501,7 +1646,7 @@ index a6d8fa3..96c1e8c 100644
  int gAutosort;
  int gAutoRefresh;
  int gEnableNotifications;
-@@ -956,6 +957,7 @@ static void _loadConfig()
+@@ -956,6 +964,7 @@ static void _loadConfig()
              configGetInt(configOPL, CONFIG_OPL_ENABLE_ILINK, &gEnableILK);
              configGetInt(configOPL, CONFIG_OPL_ENABLE_MX4SIO, &gEnableMX4SIO);
              configGetInt(configOPL, CONFIG_OPL_ENABLE_BDMHDD, &gEnableBdmHDD);
@@ -1509,7 +1654,25 @@ index a6d8fa3..96c1e8c 100644
              configGetInt(configOPL, CONFIG_OPL_SFX, &gEnableSFX);
              configGetInt(configOPL, CONFIG_OPL_BOOT_SND, &gEnableBootSND);
              configGetInt(configOPL, CONFIG_OPL_BGM, &gEnableBGM);
-@@ -1126,6 +1128,7 @@ static void _saveConfig()
+@@ -998,6 +1007,17 @@ static void _loadConfig()
+             if (configGetStr(configNet, CONFIG_NET_PS2_DNS, &temp))
+                 sscanf(temp, "%d.%d.%d.%d", &ps2_dns[0], &ps2_dns[1], &ps2_dns[2], &ps2_dns[3]);
+ 
++            // [NETBOX] NetBox 专用网络配置（独立 SMB）
++            if (configGetStr(configNet, CONFIG_NET_NETBOX_IP, &temp))
++                sscanf(temp, "%d.%d.%d.%d", &netbox_ip[0], &netbox_ip[1], &netbox_ip[2], &netbox_ip[3]);
++            if (configGetStr(configNet, CONFIG_NET_NETBOX_NETM, &temp))
++                sscanf(temp, "%d.%d.%d.%d", &netbox_netmask[0], &netbox_netmask[1], &netbox_netmask[2], &netbox_netmask[3]);
++            if (configGetStr(configNet, CONFIG_NET_NETBOX_GATEW, &temp))
++                sscanf(temp, "%d.%d.%d.%d", &netbox_gateway[0], &netbox_gateway[1], &netbox_gateway[2], &netbox_gateway[3]);
++            if (configGetStr(configNet, CONFIG_NET_NETBOX_DNS, &temp))
++                sscanf(temp, "%d.%d.%d.%d", &netbox_dns[0], &netbox_dns[1], &netbox_dns[2], &netbox_dns[3]);
++            configGetInt(configNet, CONFIG_NET_NETBOX_DHCP, &netbox_ip_use_dhcp);
++
+             configGetStrCopy(configNet, CONFIG_NET_NBD_DEFAULT_EXPORT, gExportName, sizeof(gExportName));
+         }
+     }
+@@ -1126,6 +1146,7 @@ static void _saveConfig()
          configSetInt(configOPL, CONFIG_OPL_ENABLE_ILINK, gEnableILK);
          configSetInt(configOPL, CONFIG_OPL_ENABLE_MX4SIO, gEnableMX4SIO);
          configSetInt(configOPL, CONFIG_OPL_ENABLE_BDMHDD, gEnableBdmHDD);
@@ -1517,7 +1680,39 @@ index a6d8fa3..96c1e8c 100644
          configSetInt(configOPL, CONFIG_OPL_SFX, gEnableSFX);
          configSetInt(configOPL, CONFIG_OPL_BOOT_SND, gEnableBootSND);
          configSetInt(configOPL, CONFIG_OPL_BGM, gEnableBGM);
-@@ -1768,6 +1771,7 @@ static void setDefaults(void)
+@@ -1151,6 +1172,17 @@ static void _saveConfig()
+         snprintf(temp, sizeof(temp), "%d.%d.%d.%d", ps2_dns[0], ps2_dns[1], ps2_dns[2], ps2_dns[3]);
+         configSetStr(configNet, CONFIG_NET_PS2_DNS, temp);
+ 
++        // [NETBOX] NetBox 专用网络配置（独立 SMB）
++        snprintf(temp, sizeof(temp), "%d.%d.%d.%d", netbox_ip[0], netbox_ip[1], netbox_ip[2], netbox_ip[3]);
++        configSetStr(configNet, CONFIG_NET_NETBOX_IP, temp);
++        snprintf(temp, sizeof(temp), "%d.%d.%d.%d", netbox_netmask[0], netbox_netmask[1], netbox_netmask[2], netbox_netmask[3]);
++        configSetStr(configNet, CONFIG_NET_NETBOX_NETM, temp);
++        snprintf(temp, sizeof(temp), "%d.%d.%d.%d", netbox_gateway[0], netbox_gateway[1], netbox_gateway[2], netbox_gateway[3]);
++        configSetStr(configNet, CONFIG_NET_NETBOX_GATEW, temp);
++        snprintf(temp, sizeof(temp), "%d.%d.%d.%d", netbox_dns[0], netbox_dns[1], netbox_dns[2], netbox_dns[3]);
++        configSetStr(configNet, CONFIG_NET_NETBOX_DNS, temp);
++        configSetInt(configNet, CONFIG_NET_NETBOX_DHCP, netbox_ip_use_dhcp);
++
+         configSetInt(configNet, CONFIG_NET_ETH_LINKM, gETHOpMode);
+         configSetInt(configNet, CONFIG_NET_PS2_DHCP, ps2_ip_use_dhcp);
+         configSetInt(configNet, CONFIG_NET_SMB_NBNS, gPCShareAddressIsNetBIOS);
+@@ -1727,6 +1759,13 @@ static void setDefaults(void)
+     ps2_dns[1] = 168;
+     ps2_dns[2] = 0;
+     ps2_dns[3] = 1;
++    // [NETBOX] NetBox 默认网络配置：直连盒子通常无 DHCP，默认静态 192.168.0.2/24。
++    // 具体网段需按盒子实际 IP 调整（见抓包确认后改 NetBox Network 设置）。
++    netbox_ip_use_dhcp = 0;
++    netbox_ip[0] = 192; netbox_ip[1] = 168; netbox_ip[2] = 0; netbox_ip[3] = 2;
++    netbox_netmask[0] = 255; netbox_netmask[1] = 255; netbox_netmask[2] = 255; netbox_netmask[3] = 0;
++    netbox_gateway[0] = 192; netbox_gateway[1] = 168; netbox_gateway[2] = 0; netbox_gateway[3] = 1;
++    netbox_dns[0] = 192; netbox_dns[1] = 168; netbox_dns[2] = 0; netbox_dns[3] = 1;
+     gPCPort = 445;
+     gPCShareName[0] = '\0';
+     gPCUserName[0] = '\0';
+@@ -1768,6 +1807,7 @@ static void setDefaults(void)
      gEnableILK = 0;
      gEnableMX4SIO = 0;
      gEnableBdmHDD = 0;
