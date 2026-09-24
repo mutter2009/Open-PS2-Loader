@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..fe46d3d
+index 0000000..d3bb8ea
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,106 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -77,6 +77,14 @@ index 0000000..fe46d3d
 +            echo "netboxh 出现次数: $(grep -a -c 'netboxh' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- netbox.irx 里【不应该】再出现 ps2ip/lwip 的导入（v12 已全部移除）---"
 +            echo "lwip_ 出现次数: $(grep -a -c 'lwip_' modules/netbox/netbox.irx 2>&1)"
++            echo
++            echo "=== [v13 关键证据] 自检与失败码是否真的编进了二进制 ==="
++            echo "--- 版本串必须是 v1.3 ... + selftest（看到它就是 v13，不是 v12）---"
++            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
++            echo "--- v13 自检相关串（stage 码由 _start 返回值携带，这里校验诊断串）---"
++            echo "selftest 出现次数  : $(grep -a -c 'selftest' modules/netbox/netbox.irx 2>&1)"
++            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
++            echo "SMAP tx ready 出现次数: $(grep -a -c 'SMAP tx ready' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
 +            echo
@@ -139,10 +147,10 @@ index d02af90..587fc44 100644
  	$(BIN2C) $< $@ $(*F)_irx
  
 diff --git a/include/bdmsupport.h b/include/bdmsupport.h
-index 0b6df1f..fb5990d 100644
+index 0b6df1f..04f0f59 100644
 --- a/include/bdmsupport.h
 +++ b/include/bdmsupport.h
-@@ -17,11 +17,32 @@ typedef struct
+@@ -17,11 +17,39 @@ typedef struct
  
  #define MAX_BDM_DEVICES 5
  
@@ -156,11 +164,18 @@ index 0b6df1f..fb5990d 100644
 +// 于是"装载被拒"和"_start() 早退"都变成同一个 -2，看不出原因。
 +// 现在分两个值保存：
 +//   gNetBoxLoadID  = 模块 id：  id < 0  => IOP 装载器拒绝加载
-+//                              （典型原因：IRX 导入的 ps2ip 库版本/函数号对不上）
-+//   gNetBoxStartRC = _start() 返回值：0 = MODULE_RESIDENT_END（驱动驻留）
-+//                                    非 0 = MODULE_NO_RESIDENT_END（socket/bind 失败等）
++//                              （典型原因：IRX 导入的库名/版本/函数号对不上）
++//   gNetBoxStartRC = _start() 返回值：
++//         0        = MODULE_RESIDENT_END（驱动驻留，自检全过）
++//         >= 10000 = v13 自检失败码 = stage * 10000 + hook 计数
++//                    （驱动故意不驻留，见 netbox_bd.c 的 NB_STAGE_*）
++//         其它非 0 = 传统意义上的 _start() 早退
 +// 由设置页的 "NetBox Network" 标签实时显示：不接电脑、不抓包，也能一眼看出
-+// 到底是"驱动没装载"还是"驱动装上了但 _start() 没跑完"。
++// 到底是"驱动没装载"、"库没注册"、"发不出帧"，还是"收不到回包"。
++#define NETBOX_START_RC_NOT_TRIED (-1000)
++#define NETBOX_LOAD_ID_NOT_TRIED  (-1000)
++extern int gNetBoxStartRC;
++extern int gNetBoxLoadID;
 +#define NETBOX_START_RC_NOT_TRIED (-1000)
 +#define NETBOX_LOAD_ID_NOT_TRIED  (-1000)
 +extern int gNetBoxStartRC;
@@ -549,10 +564,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..8420cea
+index 0000000..25f8fe7
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,812 @@
+@@ -0,0 +1,968 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -670,6 +685,19 @@ index 0000000..8420cea
 +static volatile int g_hook_calls = 0;
 +static volatile int g_rx_frames  = 0;
 +static volatile int g_rx_drop    = 0;
++
++/*
++ * 发送失败计数（v13 新增）。
++ *
++ * 为什么必须单独数它：SMAPSendPacket() 的第一行是
++ *     if (SmapDriverData.SmapIsInitialized) { ...发... } else result = -1;
++ * 而 SmapIsInitialized 只在 SMAPStart() 里 PHY 真正 up 之后才置 1。
++ * SMAPStart() 是 smap-ingame 在 netif_add() 里调的，**返回值被丢掉了**。
++ * 于是"PHY/链路没起来 ⇒ 一个字节都发不出去 ⇒ 盒子永远收不到请求"
++ * 在 v12 里是完全不可见的：驱动照样返回 resident，设置页照样显示正常。
++ * g_tx_err>0 且 g_hook_calls==0 就是在说这件事。
++ */
++static volatile int g_tx_err = 0;
 +
 +static void rx_push(const u8 *frame, int len)
 +{
@@ -817,9 +845,16 @@ index 0000000..8420cea
 +/* 发一个协议请求。返回 SMAPSendPacket 的结果（1 = 成功，-1 = SMAP 未初始化） */
 +static int nb_send(const u8 *payload, int len)
 +{
++    int r;
++
 +    if (nb_build_frame(payload, len, NB_PORT) < 0)
 +        return -1;
-+    return SMAPSendPacket(nb_tx, NB_TX_FRAME_LEN);
++
++    r = SMAPSendPacket(nb_tx, NB_TX_FRAME_LEN);
++    if (r < 0)
++        g_tx_err++; /* -1 = SmapIsInitialized==0：PHY/链路没起来，见上面的注释 */
++
++    return r;
 +}
 +
 +/*
@@ -841,6 +876,92 @@ index 0000000..8420cea
 +
 +    if (nb_build_frame((const u8 *)buf, len, NB_DIAG_PORT) > 0)
 +        SMAPSendPacket(nb_tx, NB_TX_FRAME_LEN);
++}
++
++/* ------------------------------------------------------------------ */
++/* v13：把"失败在哪一步"编码进 _start() 的返回值，直接显示在设置页上       */
++/*                                                                     */
++/* v12 的问题是：只要代码跑到最后就返回 MODULE_RESIDENT_END(0)，设置页   */
++/* 显示 "resident"，可读盘可能早就失败了 —— 下面这些完全不同的故障在屏幕 */
++/* 上长得一模一样：                                                     */
++/*   - PHY/链路没起来，SMAPSendPacket() 全返回 -1，一帧都没发出去        */
++/*   - 发得出去但盒子没回（网线接反、盒子没上电、盒子不在这个网段）      */
++/*   - 收到帧了但被 rx_push 的 ethertype/端口过滤挡掉                    */
++/*   - 收到帧了、事务号/数据偏移却对不上                                 */
++/*   - 数据拿到了但内容错位                                              */
++/* v13 改成：任何"注册 BD 设备之前"的失败都【不驻留】，并把失败位置编码： */
++/*                                                                     */
++/*     _start() 返回值 = stage * 10000 + hook 计数                      */
++/*                                                                     */
++/* 设置页会打印成  "NetBox: FAIL stage=3 hook=0 (v13)"                   */
++/* stage 含义：                                                         */
++/*   1 = SMAPGetMACAddress() 失败      -> smap-ingame 没真正初始化       */
++/*   2 = 一帧都发不出去                -> SmapIsInitialized==0（PHY/链路）*/
++/*   3 = 发得出去但收不到任何回包      -> hook=0（线/盒子/中断）          */
++/*   4 = 收到回包但 IDENTIFY 没匹配上  -> 事务号或应答偏移不符            */
++/*   5 = 读 LBA0 失败                  -> 扇区数据没拿到                 */
++/*   6 = LBA0 读到了但无 55AA 签名     -> 数据错位                       */
++/* 返回 0 且设置页显示 resident = 自检全过（含真读 LBA0），BD 设备已注册  */
++/* ------------------------------------------------------------------ */
++
++#define NB_STAGE_MAC      1
++#define NB_STAGE_TX       2
++#define NB_STAGE_NO_REPLY 3
++#define NB_STAGE_IDENTIFY 4
++#define NB_STAGE_READ0    5
++#define NB_STAGE_BOOTSIG  6
++
++/*
++ * 返回失败码给 IOP 装载器（= MODULE_NO_RESIDENT_END，模块随后被卸载）。
++ * 【钩子必须先摘掉】：钩子函数体在本模块里，模块一卸载，
++ * smap-ingame 之后每收一帧就会跳进已释放的代码 -> 必崩。
++ * smap-ingame 的 SmapPassRawFrame() 有 NULL 判断，摘掉就是干净的。
++ */
++static int nb_fail(int stage)
++{
++    char msg[128];
++    int  hooks = g_hook_calls;
++
++    if (hooks > 9999)
++        hooks = 9999;
++
++    smap_set_rx_hook(NULL);
++
++    sprintf(msg, "FAIL stage=%d hook=%d rx=%d drop=%d txerr=%d -> not resident",
++            stage, hooks, g_rx_frames, g_rx_drop, g_tx_err);
++    nb_diag(msg);
++
++    printf("netbox: FAIL stage=%d hook=%d txerr=%d (module will not stay resident)\n",
++           stage, hooks, g_tx_err);
++
++    return stage * 10000 + hooks;
++}
++
++/*
++ * v13：确认 SMAP 真的能发帧。
++ *
++ * SMAPSendPacket() 在 SmapIsInitialized==0 时返回 -1 且什么都不发。这个状态
++ * 只由 SMAPStart() 里 PHY up 之后置位，而 SMAPStart() 的返回值在
++ * smap-ingame 的 SMapIFInit() 里被丢掉了 —— 所以这里自己探一遍。
++ *
++ * 探针帧就是握手的第一条记录（R:FF00），不是垃圾数据：即使盒子收到它，
++ * 也只是正常握手序列的第一步。
++ *
++ * 【为什么不在这里调 SMAPStart() 重试】链路真的不通时 InitPHY() 会在
++ * 自动协商里长时间阻塞（甚至 goto 重来），在菜单初始化路径上反复调用
++ * 会把 OPL 卡死。所以这里只观察、只报告。
++ */
++static int nb_probe_tx(void)
++{
++    static const u8 probe[] = { NB_SYNC0, NB_SYNC1, NB_T_CMD, NB_C_R, 0xFF, 0x00 };
++    int i;
++
++    for (i = 0; i < 20; i++) { /* 20 x 100ms = 2s */
++        if (nb_send(probe, (int)sizeof(probe)) == 1)
++            return 1;
++        DelayThread(100 * 1000);
++    }
++    return 0;
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -1283,11 +1404,12 @@ index 0000000..8420cea
 +int _start(int argc, char *argv[])
 +{
 +    iop_sema_t sema;
++    static u8 sec0[NB_DATA_SIZE]; /* LBA0 自检缓冲；static 免得吃 IOP 线程栈 */
 +    u64 sectors = 0; /* 必须初始化：下面的重试循环拿它当条件 */
-+    int mac_ok, try;
++    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.2 (raw SMAP)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.3 (raw SMAP + selftest)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -1297,11 +1419,16 @@ index 0000000..8420cea
 +
 +    /*
 +     * 1) 取本机 SMAP MAC（只用来填自发帧的源 MAC，盒子并不看）。
-+     *    这一步同时充当"SMAP 驱动已经在跑"的判据：smap-ingame 的
-+     *    smap_init() 里 SMAPStart() 成功之后才拿得到 MAC。
++     *    注意：这里读的是 EMAC3 的地址寄存器，它们是 smap_init() 从 DEV9
++     *    EEPROM 读出后写进去的，【和链路通不通无关】。所以"MAC 读到了"
++     *    不等于"发得出去"，后者由第 3) 步单独判。
 +     */
 +    memset(nb_mac, 0, sizeof(nb_mac));
 +    mac_ok = (SMAPGetMACAddress(nb_mac) == 0);
++    if (!mac_ok) {
++        printf("netbox: SMAPGetMACAddress() failed -> smap-ingame not initialized\n");
++        return nb_fail(NB_STAGE_MAC);
++    }
 +
 +    /* 2) 注册原始帧钩子。必须在任何读操作之前 —— 握手和 IDENTIFY 的应答
 +     *    全靠它进来。钩子在 ps2ip_input() 之前被调用，拿到的是完整帧。 */
@@ -1309,54 +1436,98 @@ index 0000000..8420cea
 +
 +    {
 +        char msg[112];
-+        sprintf(msg, "hooked, mac=%02x:%02x:%02x:%02x:%02x:%02x (%s)",
-+                nb_mac[0], nb_mac[1], nb_mac[2], nb_mac[3], nb_mac[4], nb_mac[5],
-+                mac_ok ? "smap ok" : "SMAPGetMACAddress FAILED");
++        sprintf(msg, "hooked, mac=%02x:%02x:%02x:%02x:%02x:%02x",
++                nb_mac[0], nb_mac[1], nb_mac[2], nb_mac[3], nb_mac[4], nb_mac[5]);
 +        nb_diag(msg);
 +    }
 +
++    /* 3) 确认真的发得出去。SMAPSendPacket() 在 SmapIsInitialized==0 时
++     *    【静默】返回 -1 且一个字节都不发，而 SmapIsInitialized 要等
++     *    SMAPStart() 里 PHY up 才置位 —— v12 就是死在这里而无人知晓：
++     *    驱动照样 resident，设置页照样显示正常，盒子却从没收到过请求。 */
++    if (!nb_probe_tx()) {
++        printf("netbox: SMAPSendPacket() always -1 -> PHY/link not ready\n");
++        return nb_fail(NB_STAGE_TX);
++    }
++    nb_diag("SMAP tx ready");
++
 +    /*
-+     * 3) 开机握手（激活盒子）+ 探容量。
-+     *    盒子可能刚上电还没就绪，或第一条广播还没走通，所以整体重试。
-+     *    sectors 已在声明处初始化为 0，循环条件才是可靠的。
++     * 4) 开机握手（激活盒子）+ 探容量。
++     *    盒子可能刚上电还没就绪，或者内置盘在休眠（IDENTIFY 会顺带唤醒它，
++     *    机械盘转起来要好几秒），所以重试窗口比 v12 放宽：6 轮 x 100ms，
++     *    每轮里 IDENTIFY 自己还有 3 次 x 500ms。
 +     */
-+    for (try = 0; try < 5 && sectors == 0; try++) {
++    for (try = 0; try < 6 && sectors == 0; try++) {
 +        char msg[64];
 +
-+        sprintf(msg, "handshake round %d", try + 1);
++        sprintf(msg, "handshake round %d (hook=%d)", try + 1, g_hook_calls);
 +        nb_diag(msg);
 +
 +        nb_handshake();
-+        DelayThread(50 * 1000); /* 50ms，等盒子应答 */
++        DelayThread(100 * 1000); /* 100ms，等盒子应答 */
 +        sectors = nb_identify_sectors();
 +    }
 +
-+    if (sectors == 0) {
-+        /* 兜底：盒子内置盘常见值。注意：走到这里说明盒子没应答，
-+         * 读盘大概率会失败（OPL 会因为 fileXioDopen 失败而不显示设备）。 */
-+        sectors = 1953525168ULL; /* 1TB */
-+        printf("netbox: 盒子无应答，使用兜底容量 %u 个扇区\n",
-+               (unsigned int)(sectors & 0xFFFFFFFF));
-+        nb_diag("IDENTIFY failed -> fallback 1TB (reads will likely fail)");
-+    } else {
++    /* 失败要分清"根本没收到帧"和"收到帧了但对不上"：前者看 hook 计数，
++     * 后者说明协议层（事务号/数据偏移）有问题。v12 这两种都一样是沉默。 */
++    if (sectors == 0)
++        return nb_fail(g_hook_calls == 0 ? NB_STAGE_NO_REPLY : NB_STAGE_IDENTIFY);
++
++    {
 +        char msg[80];
 +        /* 1 GB = 2097152 个 512 字节扇区，所以 GB 就是 sectors >> 21。
-+         * （v11 写的是 (sectors>>11)/1024，数值对但单位标成 MB 了。） */
++         * （v11 写的是 (sectors>>11)/1024，数值对但单位标成 MB 了。）
++         * 容量只影响上报大小、不影响读盘正确性，所以不合理也不再兜底，
++         * 只如实打到诊断通道上。 */
 +        sprintf(msg, "IDENTIFY ok: %u sectors (%u GB)",
 +                (unsigned int)(sectors & 0xFFFFFFFF),
 +                (unsigned int)(sectors >> 21));
 +        nb_diag(msg);
 +    }
++
++    /*
++     * 5) 自检：真读一次 LBA0。
++     *    这一步和 fatfs 挂载时做的第一件事【完全一样】（先读引导扇区），
++     *    所以它过了，就说明 mass0: 基本一定能挂上、设备图标一定会出现。
++     *    它不过，就没必要注册 BD 设备 —— 反正 OPL 那边的
++     *    fileXioDopen("mass0:/") 也会失败、图标也不会出现。宁可让设置页
++     *    明确报出死在哪一段，也不要再出现"resident 但什么都没有"。
++     */
++    r = -1;
++    for (try = 0; try < 3; try++) {
++        r = nb_transaction(0, 1, sec0, NB_ATA_READ_EXT);
++        if (r == 1)
++            break;
++        nb_diag("read LBA0 failed, retrying");
++        DelayThread(300 * 1000); /* 300ms：给休眠中的盘一点时间 */
++    }
++    if (r != 1) {
++        printf("netbox: selftest read LBA0 failed (ret=%d)\n", r);
++        return nb_fail(NB_STAGE_READ0);
++    }
++
++    /* 引导扇区的最后两个字节必须是 55 AA（MBR / exFAT / FAT 都遵守）。
++     * 读得到但这两个字节不对 => 数据错位。这比"读不到"更需要单独报出来，
++     * 因为它意味着协议通了、但偏移或扇区对齐算错了。 */
++    if (sec0[510] != 0x55 || sec0[511] != 0xAA) {
++        char msg[96];
++        sprintf(msg, "LBA0 read ok but no 55AA signature (tail=%02x %02x)",
++                sec0[510], sec0[511]);
++        nb_diag(msg);
++        return nb_fail(NB_STAGE_BOOTSIG);
++    }
++
++    /* 6) 全通了才注册 BD 设备 */
 +    g_netbox_bd.sectorCount = sectors;
 +
-+    /* 关键诊断：把 hook / 收帧计数报出来（定位见上面计数器的注释） */
 +    {
-+        char msg[96];
-+        sprintf(msg, "hook=%d rx=%d drop=%d", g_hook_calls, g_rx_frames, g_rx_drop);
++        char msg[112];
++        sprintf(msg, "selftest passed (%u sectors), hook=%d rx=%d drop=%d -> resident",
++                (unsigned int)(sectors & 0xFFFFFFFF), g_hook_calls, g_rx_frames, g_rx_drop);
 +        nb_diag(msg);
 +    }
 +
-+    printf("netbox: 容量 %u 个扇区 (%u GB)\n",
++    printf("netbox: selftest ok, %u sectors (%u GB)\n",
 +           (unsigned int)(sectors & 0xFFFFFFFF),
 +           (unsigned int)(sectors >> 21));
 +
@@ -1638,7 +1809,7 @@ index 76da054..d3178fd 100644
      } else
          result = MODULE_RESIDENT_END; // Initialized ok.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..baa4f37 100644
+index b181dec..3be0c08 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
 @@ -11,6 +11,7 @@
@@ -1672,7 +1843,7 @@ index b181dec..baa4f37 100644
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +120,71 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +120,74 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
@@ -1733,7 +1904,10 @@ index b181dec..baa4f37 100644
 +        LOG("netbox: SifExecModuleBuffer id=%d ret=%d\n", gNetBoxLoadID, gNetBoxStartRC);
 +
 +        if (gNetBoxLoadID >= 0) {
-+            /* 模块已装上：即使 _start() 早退，ps2ip 也不该被拆（socket 还在用） */
++            /* 模块已装上。注意 v13 起 _start() 可能返回自检失败码
++             * （>=10000 = stage*10000+hook）—— 那种情况下驱动【故意不驻留】，
++             * 也就没有注册任何 BD 设备，gNetBoxDriverLoaded 必须保持 0，
++             * 否则 ethsupport.c 会以为"网络栈还被驱动用着"而不肯善后。 */
 +            netboxModLoaded = 1;
 +            if (gNetBoxStartRC == 0)
 +                gNetBoxDriverLoaded = 1;
@@ -1744,7 +1918,7 @@ index b181dec..baa4f37 100644
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +271,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +274,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1754,7 +1928,7 @@ index b181dec..baa4f37 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +908,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +911,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -2092,10 +2266,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..bc0b0c2 100644
+index 1054228..3c23c3a 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,86 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,105 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -2118,14 +2292,28 @@ index 1054228..bc0b0c2 100644
 +    //   smap ok, netbox pending    -> 第 1 关过了，等 netbox.irx（正常过渡态）
 +    //   netbox LOAD REFUSED        -> 第 2 关没过：IOP 拒绝加载 netbox.irx
 +    //                                 （库名/版本/函数号对不上，或导入解析不到）
-+    //   driver START FAILED        -> 装上了但 _start() 早退（读盘前就退）
-+    //   resident                   -> 装载成功且 _start() 驻留
-+    // v12：resident 只说明【装载】成功，读盘是否通要看 UDP 40001 的诊断文本
-+    //      （PC 上跑 tools/netbox_diag_sniff.py），标签里的 "(raw SMAP v12)"
-+    //      用来确认跑的是新驱动、不是旧版。
++    //   driver START FAILED        -> 装上了但 _start() 早退
++    //   FAIL stage=N hook=M        -> v13：驱动自检失败。它【故意不驻留】
++    //                                 （注册了 BD 设备也读不出来，不如直接报），
++    //                                 并把失败位置编码进返回值：
++    //                                     ret = stage * 10000 + hook 计数
++    //                                 stage 含义（驱动里 NB_STAGE_* 一致）：
++    //                                   1 连 SMAP MAC 都没读到
++    //                                   2 一帧都发不出去（PHY/链路没起来，
++    //                                     SMAPSendPacket 静默返回 -1）
++    //                                   3 发得出去但收不到任何回包（hook=0）
++    //                                   4 收到回包但 IDENTIFY 对不上
++    //                                   5 读 LBA0 失败
++    //                                   6 LBA0 读到了但没有 55AA 引导签名
++    //                                 hook = 收包钩子被调用的次数，把"线/盒子"
++    //                                 和"协议层"两类问题分开。
++    //   resident (raw SMAP v13)    -> 自检全过（含真读 LBA0 + 55AA 校验），
++    //                                 BD 设备已注册，mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
 +        static char netboxStatus[128];
++        int stage, hooks;
++
 +        if (!gEnableNetBox)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox Network: OFF");
 +        else if (gNetboxSmapStartRC == NETBOX_SMAP_RC_NOT_TRIED)
@@ -2141,11 +2329,16 @@ index 1054228..bc0b0c2 100644
 +        else if (gNetBoxLoadID < 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus),
 +                     "NetBox: ON, smap ok, netbox LOAD REFUSED (id=%d)", gNetBoxLoadID);
-+        else if (gNetBoxStartRC != 0)
++        else if (gNetBoxStartRC >= 10000) {
++            stage = gNetBoxStartRC / 10000;
++            hooks = gNetBoxStartRC % 10000;
++            snprintf(netboxStatus, sizeof(netboxStatus),
++                     "NetBox: FAIL stage=%d hook=%d (v13)", stage, hooks);
++        } else if (gNetBoxStartRC != 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v12)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v13)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
