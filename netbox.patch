@@ -127,24 +127,32 @@ index d02af90..587fc44 100644
  	$(BIN2C) $< $@ $(*F)_irx
  
 diff --git a/include/bdmsupport.h b/include/bdmsupport.h
-index 0b6df1f..a0edcd0 100644
+index 0b6df1f..fb5990d 100644
 --- a/include/bdmsupport.h
 +++ b/include/bdmsupport.h
-@@ -17,11 +17,24 @@ typedef struct
+@@ -17,11 +17,32 @@ typedef struct
  
  #define MAX_BDM_DEVICES 5
  
 +// [NETBOX] 1 = netbox BDM 驱动已驻留（网络栈不能被拆，见 bdmsupport.c / ethsupport.c）
 +extern int gNetBoxDriverLoaded;
 +
-+// [NETBOX] sysLoadModuleBuffer(&netbox_irx) 的返回值 + 尚未尝试的哨兵值。
-+//   rc < 0   : 模块加载本身就失败（没编进固件 / 导入无法解析 / 内存不足）
-+//   rc = 0   : 加载成功且 _start() 返回 MODULE_RESIDENT_END（驱动真正驻留了）
-+//   rc > 0   : 模块装上了但 _start() 返回 MODULE_NO_RESIDENT_END（socket/bind 失败等）
++// [NETBOX] 加载 netbox.irx 的真实返回值 + 尚未尝试的哨兵值。
++//
++// 注意：不要再用 OPL 的 sysLoadModuleBuffer() 来做这个判断 —— 它的实现是
++//     id = SifExecModuleBuffer(...);  if ((id < 0) || (ret)) ret = -2;
++// 于是"装载被拒"和"_start() 早退"都变成同一个 -2，看不出原因。
++// 现在分两个值保存：
++//   gNetBoxLoadID  = 模块 id：  id < 0  => IOP 装载器拒绝加载
++//                              （典型原因：IRX 导入的 ps2ip 库版本/函数号对不上）
++//   gNetBoxStartRC = _start() 返回值：0 = MODULE_RESIDENT_END（驱动驻留）
++//                                    非 0 = MODULE_NO_RESIDENT_END（socket/bind 失败等）
 +// 由设置页的 "NetBox Network" 标签实时显示：不接电脑、不抓包，也能一眼看出
-+// 到底是"驱动没加载"还是"驱动加载了但启动失败"。
++// 到底是"驱动没装载"还是"驱动装上了但 _start() 没跑完"。
 +#define NETBOX_START_RC_NOT_TRIED (-1000)
++#define NETBOX_LOAD_ID_NOT_TRIED  (-1000)
 +extern int gNetBoxStartRC;
++extern int gNetBoxLoadID;
 +
  #define BDM_TYPE_UNKNOWN -1
  #define BDM_TYPE_USB     0
@@ -275,10 +283,10 @@ index 0000000..6073eca
 +include $(PS2SDK)/samples/Makefile.iopglobal
 diff --git a/modules/netbox/imports.lst b/modules/netbox/imports.lst
 new file mode 100644
-index 0000000..31c8220
+index 0000000..a96020d
 --- /dev/null
 +++ b/modules/netbox/imports.lst
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,57 @@
 +bdm_IMPORTS_start
 +I_bdm_connect_bd
 +I_bdm_disconnect_bd
@@ -289,10 +297,11 @@ index 0000000..31c8220
 +I_lwip_close
 +I_lwip_bind
 +I_lwip_sendto
-+I_lwip_recvfrom
++I_lwip_recv
 +I_lwip_setsockopt
 +I_inet_addr
-+I_ps2ip_set_raw_hook
++# 只有 NETBOX_USE_RAWHOOK（自编译 ps2ip）时才需要：
++# I_ps2ip_set_raw_hook
 +ps2ip_IMPORTS_end
 +
 +stdio_IMPORTS_start
@@ -485,10 +494,10 @@ index 0000000..e2b96dc
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..f3301a6
+index 0000000..458d070
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,806 @@
+@@ -0,0 +1,939 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -498,10 +507,14 @@ index 0000000..f3301a6
 + * 协议依据：../PROTOCOL.md（由真实盒子抓包逐字节验证）
 + *
 + * 已知前提 / 注意：
-+ *  1. 盒子的应答是畸形 IP 包（IP 声明 124 字节，实际 640 字节），lwIP 会裁剪，
-+ *     因此默认走“原始帧钩子”收包。钩子需要给 SMSTCPIP 打补丁，
-+ *     见同目录 ps2ip_raw_hook.diff。若不想打补丁，可定义 NETBOX_USE_RECVFROM
-+ *     退回普通 socket 收包（大概率只能拿到前 96 字节，仅用于验证链路）。
++ *  1. 收包有两条路径，由 NETBOX_USE_RAWHOOK 选择：
++ *     A) 默认 —— 普通 UDP socket（lwip_recv）。菜单里 OPL 加载的是 ps2sdk 预编译的
++ *        ps2ip-nm.irx（ps2ip v2.6），只有这个能用；盒子应答是畸形 IP 包
++ *        （IP 声明 124 / 实际 640），lwIP 会裁剪，所以 socket 只能拿到前 96 字节 ——
++ *        够验证链路，不够读扇区。
++ *     B) -DNETBOX_USE_RAWHOOK —— 原始帧钩子，需要一份自编译、导出
++ *        ps2ip_set_raw_hook 的 ps2ip（当前是 modules/network/SMSTCPIP + 补丁）。
++ *        这条路径才能拿到完整 640 字节帧，是读扇区的正解。
 + *  2. 盒子 IP 不写死：PS2 发广播、盒子广播回，靠事务号配对。ELF 分析也证实
 + *     厂商没有硬编码盒子 IP。
 + *  3. 写操作未抓到过样本，本驱动只读（write 返回 -1），避免静默写坏数据。
@@ -540,14 +553,13 @@ index 0000000..f3301a6
 +#define NETBOX_CLOSE   (*plwip_close)
 +#define NETBOX_BIND    (*plwip_bind)
 +#define NETBOX_SENDTO  (*plwip_sendto)
-+#define NETBOX_RECVFROM (*plwip_recvfrom)
++#define NETBOX_RECV (*plwip_recv)
 +#define NETBOX_SETSOCKOPT (*plwip_setsockopt)
 +#define NETBOX_INET_ADDR (*pinet_addr)
 +
 +extern int (*plwip_close)(int s);
 +extern int (*plwip_bind)(int s, struct sockaddr *name, nb_socklen_t namelen);
-+extern int (*plwip_recvfrom)(int s, void *mem, int hlen, void *payload, int plen,
-+                             unsigned int flags, struct sockaddr *from, nb_socklen_t *fromlen);
++extern int (*plwip_recv)(int s, void *mem, int len, unsigned int flags);
 +extern int (*plwip_sendto)(int s, void *dataptr, int size, unsigned int flags,
 +                           struct sockaddr *to, nb_socklen_t tolen);
 +extern int (*plwip_socket)(int domain, int type, int protocol);
@@ -558,7 +570,7 @@ index 0000000..f3301a6
 +#define NETBOX_CLOSE   lwip_close
 +#define NETBOX_BIND    lwip_bind
 +#define NETBOX_SENDTO  lwip_sendto
-+#define NETBOX_RECVFROM lwip_recvfrom
++#define NETBOX_RECV    lwip_recv
 +#define NETBOX_SETSOCKOPT lwip_setsockopt
 +#define NETBOX_INET_ADDR inet_addr
 +
@@ -567,15 +579,23 @@ index 0000000..f3301a6
 +extern int lwip_bind(int s, struct sockaddr *name, nb_socklen_t namelen);
 +extern int lwip_sendto(int s, void *dataptr, int size, unsigned int flags,
 +                       struct sockaddr *to, nb_socklen_t tolen);
-+extern int lwip_recvfrom(int s, void *mem, int hlen, void *payload, int plen,
-+                         unsigned int flags, struct sockaddr *from, nb_socklen_t *fromlen);
++/* 用 lwip_recv（4 参）而不是 lwip_recvfrom：OPL 的 SMSTCPIP 把 recvfrom 改成了
++ * SMS 专用的 8 参签名，和 ps2sdk 的 ps2ip-nm.irx（标准 6 参）ABI 不兼容；
++ * lwip_recv 在两边签名一致，且都能收到 UDP 载荷。 */
++extern int lwip_recv(int s, void *mem, int len, unsigned int flags);
 +extern int lwip_setsockopt(int s, int level, int optname, const void *optval, nb_socklen_t optlen);
 +extern u32 inet_addr(const char *cp);
 +#endif
 +
-+/* 原始帧钩子（需要给 SMSTCPIP 打补丁后才有此导出） */
++/*
++ * 原始帧钩子（收包路径 B）。
++ * 只有【自己编译的 ps2ip】才有这个导出：ps2ip-nm.irx(2.6) 没有，
++ * 所以默认关闭。详见 netbox_imports.h 顶部说明。
++ */
++#ifdef NETBOX_USE_RAWHOOK
 +typedef void (*ps2ip_raw_hook_t)(const void *frame, int len);
 +extern void ps2ip_set_raw_hook(ps2ip_raw_hook_t cb);
++#endif
 +
 +/* lwIP 的 sockaddr_in 布局（必须与 lwip/sockets.h 一致） */
 +struct nb_sockaddr_in {
@@ -634,6 +654,7 @@ index 0000000..f3301a6
 + */
 +static volatile int g_hook_calls = 0;
 +static volatile int g_rx_frames  = 0;
++static volatile int g_sock_rx    = 0; /* 收包路径 A（socket）收到的数据报个数 */
 +
 +static void rx_push(const u8 *frame, int len)
 +{
@@ -665,12 +686,14 @@ index 0000000..f3301a6
 +    iSignalSema(rx_sema);
 +}
 +
-+/* 拦截器：由 SMSTCPIP 的 ps2ip_input 调用（补丁见 ps2ip_raw_hook.diff） */
++/* 收包路径 B 的拦截器：由自编译 ps2ip 的 ps2ip_input 调用（补丁见 ps2ip_raw_hook.diff） */
++#ifdef NETBOX_USE_RAWHOOK
 +static void netbox_raw_hook(const void *frame, int len)
 +{
 +    g_hook_calls++;
 +    rx_push((const u8 *)frame, len);
 +}
++#endif
 +
 +/* ------------------------------------------------------------------ */
 +/* 请求构造                                                            */
@@ -806,6 +829,115 @@ index 0000000..f3301a6
 +    dst.sin_addr   = INADDR_BROADCAST;
 +
 +    NETBOX_SENDTO(s, buf, len, 0, (struct sockaddr *)&dst, sizeof(dst));
++}
++
++/* ------------------------------------------------------------------ */
++/* 收包路径 A（默认）：普通 UDP socket                                  */
++/* ------------------------------------------------------------------ */
++/*
++ * 为什么默认走 socket：
++ *   OPL 菜单里（也就是 BDM 扫描、netbox 驱动被加载的那一刻）加载的 ps2ip 是
++ *   ps2sdk 预编译的 ps2ip-nm.irx（库版本 v2.6），它没有 ps2ip_set_raw_hook；
++ *   我们补过钩子的 SMSTCPIP（v1.3）只在启动游戏（in-game）时才会用。
++ *   所以菜单里的 netbox 驱动只能用普通 socket 收包。
++ *
++ * 已知天花板（盒子应答是畸形 IP 包，见 netbox.h 与 PROTOCOL.md）：
++ *   盒子把 IP total_length 写成 124、UDP length 写成 104，以太网帧实际却是 640 字节；
++ *   lwIP 的 ip_input() 会按 total_length 把 pbuf 裁到 124 字节 =>
++ *   socket 最多只能拿到 96 字节 UDP 载荷，512 字节扇区数据在这里就被丢了。
++ *   于是本路径足以验证"驱动已驻留 / 握手已上线 / 盒子在回包"，
++ *   真正读扇区必须靠收包路径 B（原始帧钩子 + 自编译的 ps2ip）。
++ *
++ * 为了让下游解析代码一行都不用改：把收到的 UDP 载荷【合成】一个 42 字节的
++ * 以太网/IP/UDP 头再塞进同一个环形缓冲。合成头的长度字段按真实值写
++ * （IP total_len = 28 + 载荷），所以只要载荷完整，合成帧长同样是 640/256，
++ * nb_poll_frame() 的判定（640=数据帧 / 256=状态帧）依旧成立。
++ */
++static u8 rx_sock_tmp[NB_RX_MAX];
++static u8 rx_synth[NB_RX_MAX];
++
++/* 合成 ethernet+ip+udp 头（42 字节），返回总帧长 */
++static int rx_synth_frame(u8 *dst, const u8 *payload, int paylen)
++{
++    int total = NB_UDP_OFF + paylen;
++    int iplen, udplen;
++
++    if (total > NB_RX_MAX)
++        total = NB_RX_MAX;
++    paylen = total - NB_UDP_OFF;
++    iplen  = NB_IP_HDR + NB_UDP_HDR + paylen;
++    udplen = NB_UDP_HDR + paylen;
++
++    memset(dst, 0, NB_UDP_OFF);
++
++    /* Ethernet：广播，ethertype = IPv4 */
++    memset(dst, 0xFF, 6);
++    dst[12] = 0x08;
++    dst[13] = 0x00;
++
++    /* IP：v4、IHL=5、proto=UDP、目的 255.255.255.255 */
++    dst[NB_ETH_HDR + 0] = 0x45;
++    dst[NB_ETH_HDR + 2] = (u8)(iplen >> 8);
++    dst[NB_ETH_HDR + 3] = (u8)(iplen & 0xFF);
++    dst[NB_ETH_HDR + 9] = 17;
++    memset(dst + NB_ETH_HDR + 16, 0xFF, 4);
++
++    /* UDP：40000 -> 40000 */
++    dst[NB_UDP_OFF - 8] = (u8)(NB_PORT >> 8);
++    dst[NB_UDP_OFF - 7] = (u8)(NB_PORT & 0xFF);
++    dst[NB_UDP_OFF - 6] = (u8)(NB_PORT >> 8);
++    dst[NB_UDP_OFF - 5] = (u8)(NB_PORT & 0xFF);
++    dst[NB_UDP_OFF - 4] = (u8)(udplen >> 8);
++    dst[NB_UDP_OFF - 3] = (u8)(udplen & 0xFF);
++
++    memcpy(dst + NB_UDP_OFF, payload, paylen);
++    return total;
++}
++
++static int g_rx_thid = -1;
++
++static void nb_rx_thread(void *arg)
++{
++    (void)arg;
++
++    for (;;) {
++        int r;
++
++        if (g_sock < 0) {
++            DelayThread(100 * 1000);
++            continue;
++        }
++
++        /* ps2ip 的 UDP socket 默认是阻塞的：没包就在这里睡，不占 CPU */
++        r = NETBOX_RECV(g_sock, rx_sock_tmp, sizeof(rx_sock_tmp), 0);
++        if (r > 0) {
++            int len = rx_synth_frame(rx_synth, rx_sock_tmp, r);
++            g_sock_rx++;
++            rx_push(rx_synth, len);
++        } else {
++            DelayThread(2 * 1000);
++        }
++    }
++}
++
++static void nb_rx_thread_start(void)
++{
++    iop_thread_t th;
++
++    memset(&th, 0, sizeof(th));
++    th.attr      = TH_C;
++    th.option    = 0;
++    th.thread    = nb_rx_thread;
++    th.stacksize = 0x800;
++    th.priority  = 0x30; /* 比协议线程低，别抢 CPU */
++
++    g_rx_thid = CreateThread(&th);
++    if (g_rx_thid > 0) {
++        StartThread(g_rx_thid, NULL);
++        nb_diag("rx thread started (socket mode)");
++    } else {
++        nb_diag("rx thread CreateThread FAILED");
++    }
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -1185,8 +1317,12 @@ index 0000000..f3301a6
 +    sema.max     = 1;
 +    io_sema      = CreateSema(&sema);
 +
-+    /* 1) 注册原始帧钩子（必须在 socket 之前，否则丢帧） */
++    /* 1) 收包路径 B：注册原始帧钩子（必须在 socket 之前，否则丢帧）。
++     *    只有 NETBOX_USE_RAWHOOK（= 用自编译 ps2ip 替换 ps2ip-nm.irx）时才编译进来。 */
++#ifdef NETBOX_USE_RAWHOOK
 +    ps2ip_set_raw_hook(netbox_raw_hook);
++    nb_diag("raw hook registered (path B)");
++#endif
 +
 +    /* 2) UDP socket 绑定 40000
 +     * ps2ip 可能还在被 OPL 的初始化流程用着（ethLoadInitModules 里有最长 30 秒的
@@ -1217,6 +1353,12 @@ index 0000000..f3301a6
 +        return MODULE_NO_RESIDENT_END;
 +    }
 +    nb_diag("bind ok");
++
++    /* 收包路径 A：起一个 socket 收包线程（默认路径，见上方长注释）。
++     * 必须放在 bind 成功之后 —— 线程里要靠 g_sock 收包，并会用 nb_diag 上报。 */
++#ifndef NETBOX_USE_RAWHOOK
++    nb_rx_thread_start();
++#endif
 +
 +    /* 2b) 再开一个【发送专用】socket，绑定 30000（NB_SRC_PORT）。
 +     *
@@ -1283,7 +1425,7 @@ index 0000000..f3301a6
 +    /* 关键诊断：把 hook / 收帧计数报出来（定位见上面计数器的注释） */
 +    {
 +        char msg[96];
-+        sprintf(msg, "hook_calls=%d rx_frames=%d", g_hook_calls, g_rx_frames);
++        sprintf(msg, "hook=%d sock_rx=%d ring=%d", g_hook_calls, g_sock_rx, g_rx_frames);
 +        nb_diag(msg);
 +    }
 +
@@ -1297,26 +1439,48 @@ index 0000000..f3301a6
 +}
 diff --git a/modules/netbox/netbox_imports.h b/modules/netbox/netbox_imports.h
 new file mode 100644
-index 0000000..d6c8440
+index 0000000..5110e14
 --- /dev/null
 +++ b/modules/netbox/netbox_imports.h
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,74 @@
 +/*
-+ * netbox_imports.h - ps2ip (SMSTCPIP) 的导入声明
++ * netbox_imports.h - ps2ip 的导入声明
 + *
-+ * 编号必须与 modules/network/SMSTCPIP/exports.tab 里的导出序号一致。
-+ * OPL 自带 SMSTCPIP 的导出（前 40 项）实测如下：
-+ *   5  lwip_bind
-+ *   6  lwip_close
-+ *   10 lwip_recvfrom
-+ *   12 lwip_sendto
-+ *   13 lwip_socket
-+ *   19 lwip_setsockopt
-+ *   23 ps2ip_input
-+ *   24 inet_addr
++ * ★★★ 2026-09-24 重大修正：库版本必须写 2.6，不是 1.3 ★★★
 + *
-+ * NB_RAW_HOOK_EXPORT_NUM 是我们新增的 ps2ip_set_raw_hook，
-+ * 必须追加在 exports.tab 的【末尾】，编号改成它实际的索引。
++ * 之前这里写的是 DECLARE_IMPORT_TABLE(ps2ip, 1, 3)，依据是 OPL 自带的
++ * modules/network/SMSTCPIP/exports.tab 声明的是 DECLARE_EXPORT_TABLE(ps2ip,1,3)。
++ * 但那是【in-game】用的网络栈。菜单里（含 BDM 设备扫
++ * 描、也就是 netbox 驱动真正加载的时刻）OPL 加载的是
++ *   Makefile: $(EE_ASM_DIR)ps2ip.c: $(PS2SDK)/iop/irx/ps2ip-nm.irx
++ * 即 ps2sdk 预编译的 ps2ip-nm.irx，它导出的是 ps2ip 版本 2.6。
++ * IOP 装载器按【库名 + 版本】精确匹配来解析导入表，版本对不上就直接拒绝加载模块：
++ *   SifExecModuleBuffer() -> id < 0
++ *   OPL 的 sysLoadModuleBuffer() 把 (id<0 || ret!=0) 一律压成 -2
++ *   => 设置页显示 "module load FAILED (rc=-2)"，且 _start() 从未执行，
++ *      所以线上抓包永远是 0 帧、设备也不会出现。
++ *
++ * 证据（都是对真实 IRX 二进制逐字节读出来的，见 NETBOX_LOAD_FAILURE_ROOTCAUSE.md）：
++ *   ps2ip-nm.irx  .text 开头导出表: magic | next=0 | ver=0x0206 | "ps2ip"
++ *   smbman.irx    导入 ps2ip: ver=0x0206, 函数号 [9,11,6,46,13,7,14,24,19]
++ *   ps2ips.irx    导入 ps2ip: ver=0x0206, 函数号 [4,5,6,7,16,17,18,19,8,9,10,11]
++ *   httpclient.irx 导入 ps2ip: ver=0x0206, 函数号 [9,11,6,14,13,46,7,48]
++ *   nbns.irx      导入 ps2ip: ver=0x0206, 函数号 [9,12,6,13,5,46]
++ * 用 OPL 自己的 imports.lst 顺序做对照（httpclient 的 ps2ip 导入顺序是
++ * lwip_recv, lwip_send, lwip_close, lwip_select, lwip_socket, lwip_shutdown,
++ * lwip_connect, lwip_gethostbyname），可以一一对上：
++ *   9=lwip_recv 11=lwip_send 6=lwip_close 14=lwip_select 13=lwip_socket
++ *   46=lwip_shutdown 7=lwip_connect 48=lwip_gethostbyname
++ * nbns 侧同样对上 12=lwip_sendto、5=lwip_bind。
++ * 这些函数号与 OPL SMSTCPIP 的 exports.tab 完全一致（那张表就是 ps2ip 的表），
++ * 所以下面 5/6/9/12/13/19/24 的编号不用改，只有【版本】和钩子要处理。
++ *
++ * 库版本号编码：u16 = (major << 8) | minor，所以 2.6 = 0x0206。
++ *
++ * 另外：ps2ip_set_raw_hook 只存在于我们补过的 SMSTCPIP（1.3）里，
++ * ps2ip-nm.irx(2.6) 的第 42 项是别的函数（ps2sdk 的导出表比 SMSTCPIP 长，
++ * 46/48 都被 smbman/httpclient 用到了）。因此默认【不导入】它，
++ * 只在显式打开 NETBOX_USE_RAWHOOK（并把 ps2ip 换成自编译版本）时才导入。
 + */
 +
 +#ifndef __NETBOX_IMPORTS_H__
@@ -1325,29 +1489,32 @@ index 0000000..d6c8440
 +#include <irx.h>
 +
 +#ifndef ps2ip_IMPORTS_start
-+#define ps2ip_IMPORTS_start DECLARE_IMPORT_TABLE(ps2ip, 1, 3)
++/* ★ 必须是 2.6：运行时被加载的是 ps2sdk 的 ps2ip-nm.irx */
++#define ps2ip_IMPORTS_start DECLARE_IMPORT_TABLE(ps2ip, 2, 6)
 +#define ps2ip_IMPORTS_end   END_IMPORT_TABLE
 +#endif
 +
++/* 函数号与 OPL SMSTCPIP 的 exports.tab / ps2sdk ps2ip 完全一致（已交叉验证） */
 +#define I_lwip_bind       DECLARE_IMPORT(5, lwip_bind)
 +#define I_lwip_close      DECLARE_IMPORT(6, lwip_close)
-+#define I_lwip_recvfrom   DECLARE_IMPORT(10, lwip_recvfrom)
++#define I_lwip_recv       DECLARE_IMPORT(9, lwip_recv)   /* 收包路径 A 用（标准 4 参签名） */
 +#define I_lwip_sendto     DECLARE_IMPORT(12, lwip_sendto)
 +#define I_lwip_socket     DECLARE_IMPORT(13, lwip_socket)
 +#define I_lwip_setsockopt DECLARE_IMPORT(19, lwip_setsockopt)
 +#define I_inet_addr       DECLARE_IMPORT(24, inet_addr)
 +
-+/* 新增（打补丁后才有）: ps2ip_set_raw_hook。
-+ *
-+ * 实测依据（OPL master, modules/network/SMSTCPIP/exports.tab）:
-+ *   导出表共 42 项，序号 0..41；pbuf_chain 带注释 //40，pbuf_take=41，
-+ *   因此追加到末尾的新项序号 = 42。
-+ *   下表已按出现顺序逐一核对：lwip_bind=5 lwip_close=6 lwip_recvfrom=10
-+ *   lwip_sendto=12 lwip_socket=13 lwip_setsockopt=19 inet_addr=24
-+ *   （注：ps2ip_Stub 在表里重复出现两次，是 OPL 自带的占位，不影响其他项）
-+ */
++/* 注意：不要导入 lwip_recvfrom(10)。
++ * OPL SMSTCPIP 的 recvfrom 是 SMS 改造过的 8 参签名
++ *   lwip_recvfrom(s, mem, hlen, payload, plen, flags, from, fromlen)
++ * 而 ps2sdk 的 ps2ip-nm.irx 是标准 6 参签名，两者 ABI 不兼容；
++ * 收包一律走 lwip_recv（两边签名一致）。 */
++
++#ifdef NETBOX_USE_RAWHOOK
++/* 原始帧钩子：只有自编译的 ps2ip（在 ps2ip_input 里回调）才有这个导出。
++ * ps2sdk 预编译的 ps2ip-nm.irx 没有，导入它的第 42 项会指向别的函数。 */
 +#define NB_RAW_HOOK_EXPORT_NUM 42
 +#define I_ps2ip_set_raw_hook DECLARE_IMPORT(NB_RAW_HOOK_EXPORT_NUM, ps2ip_set_raw_hook)
++#endif
 +
 +#endif
 diff --git a/modules/network/SMSTCPIP/exports.tab b/modules/network/SMSTCPIP/exports.tab
@@ -1414,7 +1581,7 @@ index f00bdd9..98a3232 100644
          case ETHTYPE_IP:
              // IP-packet. Update ARP table, obtain first queued packet.
 diff --git a/src/bdmsupport.c b/src/bdmsupport.c
-index b181dec..95b932e 100644
+index b181dec..232ebd8 100644
 --- a/src/bdmsupport.c
 +++ b/src/bdmsupport.c
 @@ -11,6 +11,7 @@
@@ -1425,7 +1592,7 @@ index b181dec..95b932e 100644
  #include "modules/iopcore/common/cdvd_config.h"
  
  #include <usbhdfsd-common.h>
-@@ -23,6 +24,13 @@
+@@ -23,6 +24,22 @@
  static int iLinkModLoaded = 0;
  static int mx4sioModLoaded = 0;
  static int hddModLoaded = 0;
@@ -1435,11 +1602,20 @@ index b181dec..95b932e 100644
 +// [NETBOX] 驱动是否已驻留。ethsupport.c 用它决定"能不能拆网络栈/关 DEV9" ——
 +// netbox 的读盘全靠 ps2ip+smap，栈一拆设备立刻变成哑设备。
 +int gNetBoxDriverLoaded = 0;
-+int gNetBoxStartRC = NETBOX_START_RC_NOT_TRIED; // [NETBOX] 设置页会显示这个值
++// [NETBOX] 加载 netbox.irx 的【两个】返回值，设置页直接显示，避免再被压成 -2：
++//   gNetBoxLoadID  = SifExecModuleBuffer() 的返回值（模块 id），>=0 = IOP 真的装上了
++//   gNetBoxStartRC = 模块 _start() 的返回值，0 = MODULE_RESIDENT_END（驱动驻留）
++int gNetBoxStartRC = NETBOX_START_RC_NOT_TRIED;
++int gNetBoxLoadID = NETBOX_LOAD_ID_NOT_TRIED;
++
++// [NETBOX] ps2sdk libkernel 的 SifExecModuleBuffer。
++// OPL 自己的 sysLoadModuleBuffer()（src/system.c）把 id 和 _start 返回值合并成 -2，
++// 对 netbox 这种"要分清楚装载失败还是启动失败"的驱动来说信息不够，所以直接调它。
++extern int SifExecModuleBuffer(void *buffer, unsigned int size, unsigned int arg_len, const char *args, int *mod_res);
  static s32 bdmLoadModuleLock;
  int bdmDeviceModeStarted;
  
-@@ -103,6 +111,72 @@ static void bdmLoadBlockDeviceModules(void)
+@@ -103,6 +120,90 @@ static void bdmLoadBlockDeviceModules(void)
          hddModLoaded = 1;
      }
  
@@ -1499,20 +1675,38 @@ index b181dec..95b932e 100644
 +        memcpy(ps2_dns, saved_dns, sizeof(ps2_dns));
 +
 +        LOG("[NETBOX]:\n");
-+        // [NETBOX] 把返回值留下来：设置页会把它显示成驱动状态，
-+        // 这样"驱动到底加载没有、_start() 有没有跑完"就不需要抓包也能看到。
-+        gNetBoxStartRC = sysLoadModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL);
-+        if (gNetBoxStartRC >= 0) {
++        /*
++         * [NETBOX] 这里刻意【不走】sysLoadModuleBuffer()，直接调 SifExecModuleBuffer()。
++         *
++         * 原因：system.c 的 sysLoadModuleBuffer() 会把两种完全不同的失败
++         *      压成同一个返回值 -2：
++         *          id = SifExecModuleBuffer(...);
++         *          if ((id < 0) || (ret)) ret = -2;
++         *      - id < 0  => IOP 装载器拒绝加载（库版本/函数号对不上、IRX 有问题…）
++         *      - ret != 0 => 模块装上了，但 _start() 返回 MODULE_NO_RESIDENT_END
++         *                    （socket/bind 失败、早退）
++         *      v10 的 "rc=-2" 就是这么来的，白丢了一轮实机测试。
++         * 现在把 (id, ret) 分开存下来给设置页显示：
++         *      gNetBoxLoadID  = id  (>=0 表示模块真的被 IOP 装上了)
++         *      gNetBoxStartRC = ret (0 表示 _start() 返回 MODULE_RESIDENT_END=驻留)
++         */
++        gNetBoxStartRC = -2; /* 先置成"非驻留"，下面按真实结果覆盖 */
++        gNetBoxLoadID  = SifExecModuleBuffer(&netbox_irx, size_netbox_irx, 0, NULL, &gNetBoxStartRC);
++        LOG("netbox: SifExecModuleBuffer id=%d ret=%d\n", gNetBoxLoadID, gNetBoxStartRC);
++
++        if (gNetBoxLoadID >= 0) {
++            /* 模块已装上：即使 _start() 早退，ps2ip 也不该被拆（socket 还在用） */
 +            netboxModLoaded = 1;
-+            gNetBoxDriverLoaded = 1;
++            if (gNetBoxStartRC == 0)
++                gNetBoxDriverLoaded = 1;
 +        } else
-+            LOG("netbox: netbox.irx 加载失败 (rc=%d)\n", gNetBoxStartRC);
++            LOG("netbox: netbox.irx 未被 IOP 装载 (id=%d)\n", gNetBoxLoadID);
 +    }
 +
      SignalSema(bdmLoadModuleLock);
  }
  
-@@ -189,6 +263,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
+@@ -189,6 +290,9 @@ static int bdmNeedsUpdate(item_list_t *itemList)
              case BDM_TYPE_ATA:
                  deviceEnabled = gEnableBdmHDD;
                  break;
@@ -1522,7 +1716,7 @@ index b181dec..95b932e 100644
              default:
                  deviceEnabled = 0;
                  break;
-@@ -823,6 +900,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
+@@ -823,6 +927,8 @@ int bdmUpdateDeviceData(item_list_t *itemList)
          else if (!strcmp(pDeviceData->bdmDriver, "ata") && strlen(pDeviceData->bdmDriver) == 3) {
              pDeviceData->bdmDeviceType = BDM_TYPE_ATA;
              itemList->flags = MODE_FLAG_COMPAT_DMA;
@@ -1639,10 +1833,10 @@ index f0462fa..a1aefb0 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..143c852 100644
+index 1054228..2329307 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,61 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,62 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -1658,22 +1852,23 @@ index 1054228..143c852 100644
 +    // 这样不接电脑、不抓包，也能一眼分清卡在哪一层：
 +    //   OFF                        -> 开关没开，驱动不会被加载
 +    //   not loaded yet             -> 还没走到 BDM 扫描（正常，进一次设备列表就会变）
-+    //   module load FAILED (rc<0)  -> netbox.irx 压根没加载上（没编进固件 / 导入解析失败）
-+    //   driver START FAILED (rc>0) -> 模块装上了，但 _start() 早退（socket/bind 失败）
-+    //   driver resident            -> 模块加载成功且 _start() 驻留，网络栈已起来
++    //   LOAD REFUSED (id<0)        -> IOP 装载器拒绝加载 netbox.irx（导入的 ps2ip 版本/函数号对不上）
++    //   loaded, ret!=0             -> 模块装上了，但 _start() 早退（socket/bind 失败）
++    //   resident                   -> 装载成功且 _start() 驻留，网络栈已起来
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
-+        static char netboxStatus[72];
++        static char netboxStatus[96];
 +        if (!gEnableNetBox)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox Network: OFF");
 +        else if (gNetBoxStartRC == NETBOX_START_RC_NOT_TRIED)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON (not loaded yet)");
-+        else if (gNetBoxStartRC < 0)
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, module load FAILED (rc=%d)", gNetBoxStartRC);
-+        else if (gNetBoxStartRC > 0)
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, driver START FAILED (rc=%d)", gNetBoxStartRC);
++        else if (gNetBoxLoadID < 0)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, LOAD REFUSED (id=%d)", gNetBoxLoadID);
++        else if (gNetBoxStartRC != 0)
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
++                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, driver resident");
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver resident", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
