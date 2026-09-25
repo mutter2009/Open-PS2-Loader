@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..09e71c4
+index 0000000..1600dca
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,164 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,7 +101,7 @@ index 0000000..09e71c4
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.7 ... link reinit diag（看到 v1.7 才是本轮；v1.6=上一轮）---"
++            echo "--- 版本串必须是 v1.8 ... rx/tx telemetry（看到 v1.8 才是本轮；v1.7=上一轮）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit（查【未 strip 的 ELF】，.irx 里没有函数名）---"
 +            echo "smap ELF   smap_phy_reinit  : $(grep -a -c 'smap_phy_reinit' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -118,16 +118,30 @@ index 0000000..09e71c4
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.7 标记           : $(grep -a -c 'v1.7' modules/netbox/netbox.irx 2>&1)"
-+            echo "link reinit diag    : $(grep -a -c 'link reinit diag' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.8 标记           : $(grep -a -c 'v1.8' modules/netbox/netbox.irx 2>&1)"
++            echo "rx/tx telemetry     : $(grep -a -c 'rx/tx telemetry' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- gui.c 侧的 v17 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
 +            echo "OPL.elf: 'NO PHY (mdio floats FFFF)' : $(grep -a -c 'NO PHY (mdio floats FFFF)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link DOWN bmsr='           : $(grep -a -c 'link DOWN bmsr=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v17)'   : $(grep -a -c 'resident (raw SMAP v17)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v18)'   : $(grep -a -c 'resident (raw SMAP v18)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
++            echo
++            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
++            echo "--- gui.c 侧六条 v18 短语，一条都不能少（各对应一种修法方向）---"
++            echo "OPL.elf: 'TX ENGINE STUCK (gnp)'     : $(grep -a -c 'TX ENGINE STUCK (gnp)' opl.elf 2>&1)"
++            echo "OPL.elf: 'TX DEAD CARRIER'           : $(grep -a -c 'TX DEAD CARRIER' opl.elf 2>&1)"
++            echo "OPL.elf: 'BAD FRAMES='               : $(grep -a -c 'BAD FRAMES=' opl.elf 2>&1)"
++            echo "OPL.elf: 'MAL STUCK nrx='            : $(grep -a -c 'MAL STUCK nrx=' opl.elf 2>&1)"
++            echo "OPL.elf: 'rx armed, 0 frames'        : $(grep -a -c 'rx armed, 0 frames' opl.elf 2>&1)"
++            echo "OPL.elf: 'NO RX IRQ at all'          : $(grep -a -c 'NO RX IRQ at all' opl.elf 2>&1)"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的 v18 解码分支没编进去）"
++            echo "--- netbox.irx 侧 v18 打包/诊断串 ---"
++            echo "netbox.irx: 'v18 intr='              : $(grep -a -c 'v18 intr=' modules/netbox/netbox.irx 2>&1)"
++            echo "--- smap.irx 侧 v18 的 MAC 侧再落一遍（改的是 smap.c，只查数据段串）---"
++            echo "smap.irx IRX_ID 仍是 smap_driver     : $(grep -a -c 'smap_driver' modules/network/smap-ingame/smap.irx 2>&1)"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
@@ -610,10 +624,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..8c50e85
+index 0000000..bd12b5f
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,1429 @@
+@@ -0,0 +1,1554 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -1147,6 +1161,116 @@ index 0000000..8c50e85
 +    return (int)v;
 +}
 +
++/* ------------------------------------------------------------------
++ * [v18] 收发现场打包 —— 「链路已证明是通的」之后该看的那一组数。
++ *
++ * 起因：v17 实机报回
++ *     "FAIL noreply [link ok lm=08 bmsr=2D] (v17)"
++ * 这一句已经把物理层彻底排除了：
++ *   lm=08    驱动结算出 100M 全双工，与 smap_init() 硬编码的一致
++ *   bmsr=2D  bit2（链路）与 bit5（自协商完成）都是 1 —— 不是 MDIO 悬空
++ *            读回 0xFFFF 那种假阳性
++ * 也就是说：链路真通了、帧也发得出去（第 4 关 SMAPSendPacket 返回 1），
++ * 却一个回包都没有。而背后还剩四种【修法完全不同】的病：
++ *
++ *   (a) DEV9/SMAP 中断根本没进来 —— 收包路径压根没被碰过
++ *       （中断没使能 / dev9 侧没接上 / SMAP 被别的实例重置了）
++ *   (b) MAL 里压着帧却没人取走 —— 中断没跑，或帧带着以太网收帧错误标志
++ *   (c) 帧取走了、却全是坏帧 —— 双工/速率与实际链路不符、线材、PHY 侧
++ *   (d) 所有计数都是 0 —— 帧压根没上线路，或者盒子真的没回
++ *
++ * v17 那四个字段（code/bmsr/sts/lm）走到这一步已经没有信息量了 ——
++ * 链路那一关过了之后它们是常量。所以 v18 把同样的位换成【收发路径计数器】，
++ * 一次 smap_get_rx_diag()（只读寄存器/读计数器，无副作用）就能全部拿到。
++ *
++ * ★ 布局选择不靠新标记位，而是靠 stage 本身 ★
++ *   stage == NB_STAGE_LINK(2) -> 用 nb_diag_pack() 的 v17 语义
++ *                                （那时 bmsr/lm 正是要看的量）
++ *   stage 为其它值            -> 用本函数的 v18 语义
++ *                                （那时链路已过，该看收发计数）
++ *   这样两边共用同一组位、不需要额外的判别位，也就不可能与 v17 撞车 ——
++ *   曾经考虑过加一个标记位，但 bits 0..30 在 v17 布局里全被占满，
++ *   任何"空闲位"其实都会被 v17 的某个字段踩到（stage 8 会踩 bit29、
++ *   code 8 会踩 bit24）。按 stage 分流是唯一不会自相矛盾的方案。
++ *
++ * 位布局（bit31 必须为 0，否则 gNetBoxStartRC 变负数、gui.c 的分支全乱）：
++ *   bit30     = 1                打包标记（与 v17 相同）
++ *   bit26..29 = stage  1..15     哪一关报的（NB_STAGE_*）—— 与 v17 同位置
++ *   bit19..24 = flags  6 位观察位，每一位 = "某个计数器非 0"：
++ *                                 bit19 DEV9 中断回调被调用过
++ *                                 bit20 RXEND（收到帧）事件出现过
++ *                                 bit21 HandleRxIntr() 跑过
++ *                                 bit22 RXFIFO_FRAME_CNT 读到过 > 0
++ *                                 bit23 有帧因 BD 错误标志被丢（原值走诊断通道）
++ *                                 bit24 发送 FIFO 里还压着帧（没发完）
++ *   bit16..18 = errcode  0..5    驱动算好的收/发帧错误分类（g_rxd[18]）
++ *   bit10..15 = nrx      0..63   MAL 里还没被取走的帧数（硬件计数，不依赖中断）
++ *   bit4..9   = nok      0..63   真正交给收帧钩子的帧数（= 钩子调用次数）
++ *   bit2..3   = nbad     0..3    因 BD 错误标志被丢掉的帧数
++ *   bit0..1   = txst     0..3    发送引擎：0 空闲 / bit0 = TxMODE0 的 GNP 位
++ *                                挂着（帧根本没上线路）/ bit1 = 有发帧错误位
++ *                                （DEAD_0・TX_ERR・SQE_ERR，即
++ *                                 "引擎试着发了、线路侧报死"）
++ *   bit25     = 保留 0
++ *
++ * 读法（一张表就能定位）：
++ *   flags 说没中断 & nrx==0  -> (a)：收包路径压根没动过
++ *   nrx>0 & nok==0           -> (b)：帧到了 MAL 却没人取走
++ *   nbad>0 或 errcode!=0     -> (c)：帧到了但全是坏的 -> 查双工/速率/线材
++ *   txst!=0                  -> 发送侧就没把帧送上线 -> 先修发送
++ *   全 0 且 flags==0         -> (d)：帧没上线或盒子真的没回
++ * ------------------------------------------------------------------ */
++
++static int nb_diag_pack18(int stage)
++{
++    unsigned int v = (unsigned int)NB_V17_MARK; /* 同一个打包标记 */
++    unsigned int nrx, nok, nbad, err, tx, fl = 0;
++
++    /* g_rxd[] 由 nb_snapshot() 填好，索引见 smap-ingame/smap.c 的 smap_get_rx_diag：
++     *   0 MAL RXFIFO 帧计数   1 TXFIFO 帧计数    3 EMAC3 标志累计 OR
++     *   4 中断回调次数        5 RXEND 次数        7 HandleRxIntr 次数
++     *   8 看到 FRAME_CNT>0 的次数   9 交给钩子的帧数   10 丢掉帧数
++     *   11 第一条丢帧的 ctrl_stat   13 EMAC3 TxMODE0（bit31 = GNP）
++     *   18 错误分类（0 无 / 1 BD 丢帧 / 2 BAD_FCS / 3 短帧 / 4 其它收帧错 /
++     *                5 发帧错误） */
++    nrx  = (g_rxd[0] > 63u) ? 63u : g_rxd[0];
++    nok  = (g_rxd[9] > 63u) ? 63u : g_rxd[9];
++    nbad = (g_rxd[10] > 3u) ? 3u : g_rxd[10];
++    err  = (g_rxd[18] > 7u) ? 7u : g_rxd[18];
++
++    if (g_rxd[4])
++        fl |= 1u;  /* bit19 */
++    if (g_rxd[5])
++        fl |= 2u;  /* bit20 */
++    if (g_rxd[7])
++        fl |= 4u;  /* bit21 */
++    if (g_rxd[8])
++        fl |= 8u;  /* bit22 */
++    if (g_rxd[11])
++        fl |= 16u; /* bit23 */
++    if (g_rxd[1])
++        fl |= 32u; /* bit24 发送 FIFO 还压着帧 */
++
++    /* 发送侧两个判据：
++     *   TxMODE0 的 bit31 = TX_GNP_0「挂着没发完」—— 描述符交了但引擎没动
++     *   errcode == 5     = 出现过 DEAD_0 / TX_ERR / SQE_ERR —— 引擎动了、
++     *                      线路侧报了死（PHY 侧根本没载波）
++     * 两者是"没启动"和"启动了但失败"，必须分开。 */
++    tx = (g_rxd[13] & 0x80000000u) ? 1u : 0u;
++    if (err == 5u)
++        tx |= 2u;
++
++    v |= ((((unsigned int)stage) & 0x0Fu) << 26)
++        | ((fl & 0x3Fu) << 19)
++        | ((err & 0x07u) << 16)
++        | ((nrx & 0x3Fu) << 10)
++        | ((nok & 0x3Fu) << 4)
++        | ((nbad & 0x03u) << 2)
++        | (tx & 0x03u);
++
++    return (int)v;
++}
++
 +/*
 + * [v16→v17] PHY 身份分类 —— 只分类，不再判失败。
 + *
@@ -1269,15 +1393,16 @@ index 0000000..8c50e85
 + * smap-ingame 之后每收一帧就会跳进已释放的代码 -> 必崩。
 + * smap-ingame 的 SmapPassRawFrame() 有 NULL 判断，摘掉就是干净的。
 + *
-+ * 编码（v15，EE 侧 src/gui.c 解码上屏）：
-+ *   ret = 1000000 + stage*100000 + lk*10000 + rx*1000 + e*100 + hook
-+ *     stage 1..9   失败在第几关（见 NB_STAGE_*）
-+ *     lk    0..5   0 none / 1 10M半 / 2 10M全 / 3 100M半 / 4 100M全 / 5 PHY 不响应
-+ *     rx    0..9   见 nb_rx_summary()
-+ *     e     0..5   0 无错 / 1 BD 丢帧 / 2 BAD_FCS / 3 短帧 / 4 其它收帧错 / 5 发帧错误
-+ *     hook  0..99  钩子被调用次数（截到 99）
++ * 编码（v18 —— 布局随 stage 分流，见 nb_diag_pack18 的位布局表）：
++ *   stage == 2（链路关自己失败）: v17 语义
++ *       ret = 0x40000000 | stage<<26 | code<<21 | BMSR低8位<<13
++ *                        | PHYSTS低8位<<5 | LinkMode低5位
++ *   stage 为其它值（链路已过）: v18 语义
++ *       ret = 0x40000000 | stage<<26 | flags<<19 | errcode<<16
++ *                        | nrx<<10 | nok<<4 | nbad<<2 | txst
 + * 这一串是【整条链路上唯一免费的 IOP->EE 通道】：release 版 OPL 没有 ps2link，
 + * IOP 的 printf 没有输出目标，所以失败信息只能挤在返回值里。
++ * 原始数字（不截断）另外走 UDP 40001 诊断通道，见上面那三行 nb_diag()。
 + */
 +static int nb_fail(int stage)
 +{
@@ -1325,10 +1450,24 @@ index 0000000..8c50e85
 +            g_rxd[0], g_rxd[1], g_rxd[9], g_rxd[11], g_rxd[7], g_rxd[8], hooks);
 +    nb_diag(msg);
 +
++    /* [v18] 上屏那 32 位是挤出来的，只放得下摘要；原始数字走诊断通道。
++     * 这一行是"屏幕上那个摘要"的注解，对照 NB_D 那段位布局读。 */
++    sprintf(msg, "v18 intr=%u/%u/%u/%u ok=%u bad=%u err=%u txfifo=%u gnp=%u",
++            g_rxd[4], g_rxd[5], g_rxd[7], g_rxd[8], g_rxd[9], g_rxd[10],
++            g_rxd[18], g_rxd[1], (g_rxd[13] & 0x80000000u) ? 1u : 0u);
++    nb_diag(msg);
++
 +    printf("netbox: FAIL stage=%d code=%d bmsr=0x%04x sts=0x%04x lm=0x%02x (not resident)\n",
 +           stage, g_phy_code, bmsr, sts, lm);
 +
-+    return nb_diag_pack(stage, g_phy_code, bmsr, sts, lm);
++    /* 布局按 stage 分流（见 nb_diag_pack18 的说明）：
++     *   链路那一关自己失败 -> v17 语义，bmsr/sts/lm 才是要看的量
++     *   链路已过、后面任一步失败 -> v18 语义，看收发路径计数器
++     * 两边共用同一组位，靠 stage 区分，不需要额外的标记位。 */
++    if (stage == NB_STAGE_LINK)
++        return nb_diag_pack(stage, g_phy_code, bmsr, sts, lm);
++
++    return nb_diag_pack18(stage);
 +}
 +
 +/*
@@ -1813,7 +1952,7 @@ index 0000000..8c50e85
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.7 (raw SMAP + link reinit diag)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.8 (raw SMAP + link reinit + rx/tx telemetry)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -2504,7 +2643,7 @@ index b3b1796..d557d8e 100644
  
  #include "xfer.h"
 diff --git a/modules/network/smap-ingame/smap.c b/modules/network/smap-ingame/smap.c
-index f43eb20..b2f9dff 100644
+index f43eb20..a7c70e9 100644
 --- a/modules/network/smap-ingame/smap.c
 +++ b/modules/network/smap-ingame/smap.c
 @@ -355,9 +355,32 @@ static unsigned int LinkCheckTimerCB(struct SmapDriverData *SmapDrivPrivData)
@@ -2571,7 +2710,7 @@ index f43eb20..b2f9dff 100644
              SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_RXEND;
              HandleRxIntr(&SmapDriverData);
          }
-@@ -674,3 +714,440 @@ int SMAPGetMACAddress(unsigned char *buffer)
+@@ -674,3 +714,465 @@ int SMAPGetMACAddress(unsigned char *buffer)
  
      return 0;
  }
@@ -2990,6 +3129,31 @@ index f43eb20..b2f9dff 100644
 +
 +done:
 +    SmapDriverData.LinkStatus = (rc == 0) ? 1 : 0;
++
++    /* --- 5b) [v18] 链路确认就绪后，把 EMAC3 的「收发使能 + 广播收帧」再落一遍 ---
++     *
++     * 为什么必须补这一刀：MAC 侧那一次使能是在【PHY 从未被初始化】的前提下
++     * 落的。看 SMAPStart() 第 471-490 行 —— BMSR 的 link 位被 MDIO 悬空读回
++     * 的 0xFFFF 骗成 1 时，InitPHY() 一次都不跑，却照样执行了
++     *     SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE0, TXMAC_ENABLE | RXMAC_ENABLE);
++     * 而本函数刚刚对 PHY 做了软复位并重新协商（见上面 --- 1) ---），
++     * 也就是"MAC 使能"与"PHY 的实际链路状态"是分两次、在两种状态下落的。
++     *
++     * 这里补的就是把这两件事重新对齐。两个值都取上游原样、都是幂等重写：
++     *   MODE0  = SMAPStart() 第 479 行的同一对
++     *   RxMODE = smap_init() 第 668 行的同一组（★含 RX_BCAST★ ——
++     *            PS2 NetBox 盒子的应答是广播帧，这一位少了就一个都收不到）
++     * 不收窄任何语义，却把"MAC 侧没使能"和"广播帧被地址过滤掉"这两种可能
++     * 一次排除掉 —— 而这两种在屏幕上和"盒子没回包"长得一模一样。
++     *
++     * 只在链路真的就绪时做（rc == 0）：链路没起来时写它没有意义，
++     * 也会让后面那几个诊断量失真。 */
++    if (rc == 0) {
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE0, SMAP_E3_TXMAC_ENABLE | SMAP_E3_RXMAC_ENABLE);
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_RxMODE,
++                         SMAP_E3_RX_STRIP_PAD | SMAP_E3_RX_STRIP_FCS |
++                             SMAP_E3_RX_INDIVID_ADDR | SMAP_E3_RX_BCAST | SMAP_E3_RX_MCAST);
++    }
 +
 +    /* --- 6) 只有链路真的起来了才把链路检查闹钟装回去 --- */
 +    if (restarted && rc == 0) {
@@ -3523,10 +3687,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..08c33bf 100644
+index 1054228..dc1efed 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,204 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,255 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -3614,10 +3778,15 @@ index 1054228..08c33bf 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus),
 +                     "NetBox: ON, smap ok, netbox LOAD REFUSED (id=%d)", gNetBoxLoadID);
 +        else if (gNetBoxStartRC & 0x40000000) {
-+            /* [v17] 链路诊断包。位布局与 modules/netbox/netbox_bd.c 的
-+             * NB_V17_MARK 注释严格对应：
++            /* [v17/v18] 位打包诊断包。位布局与 modules/netbox/netbox_bd.c 的
++             * NB_V17_MARK / nb_diag_pack18() 两段注释严格对应。
 +             *   bit26..29 stage / bit21..25 code / bit13..20 BMSR 低 8 位
 +             *   bit5..12 PHYSTS 低 8 位 / bit0..4 LinkMode 低 5 位
++             *   ★位 22..25 与 0..20 的含义【随 stage 变】★：
++             *     stage == 2（链路那一关自己失败）-> v17 语义，看 bmsr/sts/lm
++             *     stage 为其它值（链路已过，失败在后面）-> v18 语义，
++             *       同样这些位装的是收发现场计数器
++             *   所以下面的分支是"先看 stage 再看字段"，不是两套打包。
 +             *
 +             * ★ 这个分支必须排在下面 "!= 0" 之前：打包值首字节是 0x40，
 +             *   即 1073741824 —— 不排在前面就会被当成普通非零值，只印出
@@ -3630,10 +3799,23 @@ index 1054228..08c33bf 100644
 +             * 例：bmsr=6D 表示 bit2=1(有链路) + bit5=1(协商完成) + bit3=1(支持协商)
 +             *     + bit0=1(有扩展寄存器)。 */
 +            unsigned int v = (unsigned int)gNetBoxStartRC;
-+            int code = (int)((v >> 21) & 0x1Fu);
-+            unsigned int bmsr = (v >> 13) & 0xFFu;
-+            unsigned int sts = (v >> 5) & 0xFFu;
-+            int lm = (int)(v & 0x1Fu);
++            int code = (int)((v >> 21) & 0x1Fu);            /* v17 语义 */
++            unsigned int bmsr = (v >> 13) & 0xFFu;          /* v17 语义 */
++            unsigned int sts = (v >> 5) & 0xFFu;            /* v17 语义 */
++            int lm = (int)(v & 0x1Fu);                      /* v17 语义 */
++            /* [v18] 同样的位在 stage != 2 时是收发现场计数器，
++             * 位布局与 netbox_bd.c 的 nb_diag_pack18() 严格对应：
++             *   bit19..24 flags / bit16..18 errcode / bit10..15 nrx
++             *   bit4..9 nok / bit2..3 nbad / bit0..1 txst
++             * 布局靠 stage 分流而不是靠标记位 —— 理由见那边的注释
++             * （bits 0..30 在 v17 布局里全被占满，任何"空闲位"都会被
++             *  v17 的某个字段踩到）。 */
++            unsigned int fl = (v >> 19) & 0x3Fu;
++            unsigned int e18 = (v >> 16) & 0x07u;
++            unsigned int nrx = (v >> 10) & 0x3Fu;
++            unsigned int nok = (v >> 4) & 0x3Fu;
++            unsigned int nbad = (v >> 2) & 0x03u;
++            unsigned int txst = v & 0x03u;
 +
 +            stage = (int)((v >> 26) & 0x0Fu);
 +            if (stage < 1 || stage > 8)
@@ -3679,22 +3861,55 @@ index 1054228..08c33bf 100644
 +            } else if (stage == 1) {
 +                snprintf(netboxStatus, sizeof(netboxStatus),
 +                         "NetBox: FAIL hook (rx hook not installed - netboxh is a stub) (v17)");
-+            } else {
-+                /* 非链路关的失败 —— 说明【链路已经确认是通的】，问题在
-+                 * 后面某一步（协议/事务号/扇区/文件系统）。把链路现场一起
-+                 * 印出来做佐证。例：
-+                 *   NetBox: FAIL noreply [link ok lm=08 bmsr=6D] (v17)
-+                 *     -> 链路 100M 全双工(lm=8)、BMSR 报链路在位，
-+                 *        那"收不到回包"就与网线、PHY 全都无关了。 */
++            } else if (stage == 3 || stage == 4) {
++                /* 3 = MAC 全零（smap_init 没跑完）/ 4 = SMAPSendPacket 恒 -1。
++                 * 这两关在链路闸之后、与收发路径的计数关系不直接，只把
++                 * v18 的原值印出来，别硬套下面的短语。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s [link ok lm=%02X bmsr=%02X] (v17)",
-+                         stageName[stage], lm, bmsr);
++                         "NetBox: FAIL %s fl=%u e=%u tx=%u (v18)",
++                         stageName[stage], fl, e18, txst);
++            } else {
++                /* [v18] 链路已经确认是通的（否则会停在 stage 2），
++                 * 所以这里要回答的不再是"线通不通"，而是
++                 * "盒子那个回包到底走到哪一步了"。全部来自
++                 * netbox_bd.c 的 nb_diag_pack18()，字符串本身点明下一步。
++                 * 顺序 = 从"最靠近发送侧"往"最靠近接收侧"排。 */
++                if (txst & 1u) {
++                    /* TxMODE0 的 GNP 位挂着 = 描述符交了、发送引擎没动，
++                     * 帧根本没上线路。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s TX ENGINE STUCK (gnp) (v18)", stageName[stage]);
++                } else if (e18 == 5u) {
++                    /* 出现过 DEAD_0 / TX_ERR / SQE_ERR = 引擎动了、
++                     * 线路侧报死（PHY 侧没有载波）。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s TX DEAD CARRIER (v18)", stageName[stage]);
++                } else if (nbad > 0u || e18 != 0u) {
++                    /* 帧到了、也取走了，但带着以太网收帧错误标志。
++                     * errcode: 1 BD丢帧 / 2 BAD_FCS / 3 短帧 / 4 其它收帧错 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s BAD FRAMES=%u e=%u (v18)",
++                             stageName[stage], nbad, e18);
++                } else if (nrx > 0u || (fl & 8u)) {
++                    /* MAL 里压着帧没被取走 -> 中断那一段的问题。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s MAL STUCK nrx=%u (v18)", stageName[stage], nrx);
++                } else if (fl & 1u) {
++                    /* 中断在跑、一个帧都没到过 -> 帧没上线，或盒子真没回。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s rx armed, 0 frames (v18)", stageName[stage]);
++                } else {
++                    /* 连中断都没进过 —— 收包路径压根没被碰过。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL %s NO RX IRQ at all fl=%u n=%u k=%u (v18)",
++                             stageName[stage], fl, nrx, nok);
++                }
 +            }
 +        } else if (gNetBoxStartRC != 0)
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v17)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v18)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
