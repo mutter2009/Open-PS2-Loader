@@ -188,10 +188,9 @@ jobs:
             echo "netbox_bd.c: 'rp << 25'              : $(grep -a -c 'rp << 25' modules/netbox/netbox_bd.c 2>&1)"
             echo "gui.c: 'unsigned int rp'             : $(grep -a -c 'unsigned int rp' src/gui.c 2>&1)"
             echo "gui.c: 'v >> 25'                     : $(grep -a -c 'v >> 25' src/gui.c 2>&1)"
-            echo "--- gui.c 侧三条 v22 短语，一条都不能少（各对应一种修法方向）---"
+            echo "--- gui.c 侧两条 v22 短语（SILENT 那条在 v23 已改措辞，见下节）---"
             echo "OPL.elf: 'RX REPLY!'                 : $(grep -a -c 'RX REPLY!' opl.elf 2>&1)"
             echo "OPL.elf: 'RX UNSOLICITED'            : $(grep -a -c 'RX UNSOLICITED' opl.elf 2>&1)"
-            echo "OPL.elf: 'RX SILENT 0 frames -> line/box (v22)' : $(grep -a -c 'RX SILENT 0 frames -> line/box (v22)' opl.elf 2>&1)"
             echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 11 分支没编进去）"
             echo
             echo "=== [v23 关键证据] 链路 + TX 体检（stage 12 / linkchk）—— 这一格整套位布局换过 ==="
@@ -210,6 +209,7 @@ jobs:
             echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
             echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
             echo "OPL.elf: 'resident (raw SMAP v23)'      : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
+            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
             echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
             echo
             echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
