@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..1600dca
+index 0000000..725d0a3
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,179 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,11 +101,13 @@ index 0000000..1600dca
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.8 ... rx/tx telemetry（看到 v1.8 才是本轮；v1.7=上一轮）---"
++            echo "--- 版本串必须是 v1.9 ... dst-MAC ladder + loopback selftest（看到 v1.9 才是本轮；v1.8=上一轮）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
-+            echo "--- v17 第 8 个导出 smap_phy_reinit（查【未 strip 的 ELF】，.irx 里没有函数名）---"
-+            echo "smap ELF   smap_phy_reinit  : $(grep -a -c 'smap_phy_reinit' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
-+            echo "netbox ELF smap_phy_reinit  : $(grep -a -c 'smap_phy_reinit' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
++            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "smap ELF   smap_loopback_set  : $(grep -a -c 'smap_loopback_set'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
++            echo "netbox ELF smap_loopback_set  : $(grep -a -c 'smap_loopback_set'  modules/netbox/netbox.notiopmod.elf 2>&1)"
 +            echo "--- 旧导出（编号 1..7）一个都不能少：改了导出表就必须整表一起看 ---"
 +            echo "smap ELF   smap_get_phy_dump : $(grep -a -c 'smap_get_phy_dump' modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
 +            echo "smap ELF   smap_get_rx_diag  : $(grep -a -c 'smap_get_rx_diag'  modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -118,15 +120,16 @@ index 0000000..1600dca
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.8 标记           : $(grep -a -c 'v1.8' modules/netbox/netbox.irx 2>&1)"
-+            echo "rx/tx telemetry     : $(grep -a -c 'rx/tx telemetry' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.9 标记           : $(grep -a -c 'v1.9' modules/netbox/netbox.irx 2>&1)"
++            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
++            echo "loopback selftest   : $(grep -a -c 'loopback selftest' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- gui.c 侧的 v17 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
 +            echo "OPL.elf: 'NO PHY (mdio floats FFFF)' : $(grep -a -c 'NO PHY (mdio floats FFFF)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link DOWN bmsr='           : $(grep -a -c 'link DOWN bmsr=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v18)'   : $(grep -a -c 'resident (raw SMAP v18)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v19)'   : $(grep -a -c 'resident (raw SMAP v19)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
@@ -142,6 +145,18 @@ index 0000000..1600dca
 +            echo "netbox.irx: 'v18 intr='              : $(grep -a -c 'v18 intr=' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- smap.irx 侧 v18 的 MAC 侧再落一遍（改的是 smap.c，只查数据段串）---"
 +            echo "smap.irx IRX_ID 仍是 smap_driver     : $(grep -a -c 'smap_driver' modules/network/smap-ingame/smap.irx 2>&1)"
++            echo
++            echo "=== [v19 关键证据] 自环自检那一路有没有真的编进二进制 ==="
++            echo "--- gui.c 侧四条 v19 短语，一条都不能少（各对应一种修法方向）---"
++            echo "OPL.elf: 'LOOPBACK: MAL frames, no IRQ nrx=' : $(grep -a -c 'LOOPBACK: MAL frames, no IRQ nrx=' opl.elf 2>&1)"
++            echo "OPL.elf: 'LOOPBACK OK: PS2 rx path fine'     : $(grep -a -c 'LOOPBACK OK: PS2 rx path fine' opl.elf 2>&1)"
++            echo "OPL.elf: 'LOOPBACK: IRQ ran, no frame nrx='  : $(grep -a -c 'LOOPBACK: IRQ ran, no frame nrx=' opl.elf 2>&1)"
++            echo "OPL.elf: 'LOOPBACK DEAD: PS2 never rx'       : $(grep -a -c 'LOOPBACK DEAD: PS2 never rx' opl.elf 2>&1)"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 9 分支没编进去）"
++            echo "--- netbox.irx 侧 v19 自环诊断串 + 目的 MAC 阶梯 ---"
++            echo "netbox.irx: 'v19 loopback:'          : $(grep -a -c 'v19 loopback:' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'dstmac_xx='             : $(grep -a -c 'dstmac_xx=' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'loopback selftest'      : $(grep -a -c 'loopback selftest' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
@@ -386,10 +401,10 @@ index 0000000..ff4da73
 +include $(PS2SDK)/samples/Makefile.iopglobal
 diff --git a/modules/netbox/imports.lst b/modules/netbox/imports.lst
 new file mode 100644
-index 0000000..1a3e199
+index 0000000..6e62c9f
 --- /dev/null
 +++ b/modules/netbox/imports.lst
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +/*
 + * netbox.irx 的导入清单。
 + *
@@ -419,6 +434,7 @@ index 0000000..1a3e199
 +I_smap_get_rx_diag
 +I_smap_get_phy_dump
 +I_smap_phy_reinit
++I_smap_loopback_set
 +netboxh_IMPORTS_end
 +
 +stdio_IMPORTS_start
@@ -624,10 +640,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..bd12b5f
+index 0000000..6bedbc9
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,1554 @@
+@@ -0,0 +1,1773 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -750,6 +766,11 @@ index 0000000..bd12b5f
 + * 返回 0 = 链路就绪 / 1 = 没就绪；细节在 out[11] 低 4 位。
 + * 编号 8，见 netbox_imports.h 与 smap-ingame/exports.tab。 */
 +extern int smap_phy_reinit(unsigned int *out, int n);
++/* v19：EMAC3 内部自环开关。打开后 MAC 的发送路径在芯片内部接回接收路径，
++ * 不经过 PHY / 网线 / 盒子 —— 于是"PS2 自己收不收得到帧"变成一个二元答案。
++ * 这是整轮里唯一不依赖外部设备、也不需要抓包的判据（见 nb_loopback_selftest）。
++ * 编号 9，见 netbox_imports.h 与 smap-ingame/exports.tab。 */
++extern int smap_loopback_set(int on);
 +
 +/* ------------------------------------------------------------------ */
 +/* 收包环形缓冲（原始帧钩子写入，协议线程消费）                          */
@@ -866,6 +887,37 @@ index 0000000..bd12b5f
 +static u8  nb_mac[6];
 +static u16 nb_ipid = 1;
 +
++/* ------------------------------------------------------------------
++ * [v19] 目的 MAC 候选表 —— 驱动器与"厂商可用版本"之间唯一未验证的差异。
++ *
++ * 2026-09-23 的桥接抓包里有【厂商 netbox 版】PS2 侧发出的 31,286 个请求帧
++ * （captures/bridge_run2_ps2_20260923.pcap / bridge_run3_ps2_20260923.pcap），
++ * 统计它们的以太网目的 MAC，结果是三个值：
++ *     ff:34:43:52:ff:ff  17339 帧
++ *     ff:34:43:30:ff:ff   7288 帧
++ *     ff:34:43:00:ff:ff   6659 帧
++ * 而且同一个载荷会在 0.2ms 内背靠背发到两个不同的地址上（:30 然后 :52），
++ * 看起来厂商是在向一组候选地址盲发。
++ *
++ * ★ 而我们自己从 v1 起一直用标准广播 ff:ff:ff:ff:ff:ff ★
++ * 这不是"随便选一个"——ff:34:43:xx 的第一个字节 0xff 说明它是【多播】地址，
++ * 一个正常网卡在多播模式下广播和多播都收；但盒子是 Zynq 上跑 Linux 的
++ * 专用设备，它的过滤规则是它自己定的，我们从来没验证过"盒子认不认标准广播"。
++ * 而这一条恰好是唯一一个"厂商能用、我们没用"的差别，之前一直没测过。
++ *
++ * 所以 v19 把开机握手改成【阶梯】：每轮换一个候选地址，谁先换来盒子的第一个
++ * 回包，谁就是对的那个。四个候选一轮跑完，代价只有 4 轮握手的等待时间；
++ * 而如果盒子本来就接受标准广播，第 0 轮就成功，行为与之前【完全一致】。
++ * （下表第 0 项就是原行为，所以这个改动是无回退风险的。）
++ * ------------------------------------------------------------------ */
++static const u8 nb_dstmac_tab[4][6] = {
++    {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, /* 0：标准广播（v1~v18 一直用的） */
++    {0xFF, 0x34, 0x43, 0x00, 0xFF, 0xFF}, /* 1：厂商实测，6659 帧            */
++    {0xFF, 0x34, 0x43, 0x30, 0xFF, 0xFF}, /* 2：厂商实测，7288 帧            */
++    {0xFF, 0x34, 0x43, 0x52, 0xFF, 0xFF}, /* 3：厂商实测，17339 帧           */
++};
++static int nb_dstmac_idx = 0;
++
 +/* IPv4 头校验和（头内校验和字段需先置 0） */
 +static u16 nb_ip_cksum(const u8 *p, int n)
 +{
@@ -888,7 +940,9 @@ index 0000000..bd12b5f
 + * 组一个 ETH + IPv4 + UDP 帧，返回整帧长度（固定 NB_TX_FRAME_LEN）。
 + *
 + * 逐字段对齐原厂 loader 的真实请求帧（2026-09-23 桥接抓包）：
-+ *   ETH dst = ff:ff:ff:ff:ff:ff   原厂填的是垃圾 MAC，广播最稳
++ *   ETH dst = 【候选表】          v19 起是阶梯，见 nb_dstmac_tab：
++ *                                厂商实测用的是 ff:34:43:{00,30,52}:ff:ff，
++ *                                而 v1~v18 一直用标准广播。这一条从没验证过。
 + *       src = 本机 SMAP MAC       原厂填全零；填真 MAC 更规范，盒子不看
 + *       type= 0x0800
 + *   IP  0.0.0.0 -> 255.255.255.255, TTL 0xff, proto 17, DF
@@ -914,7 +968,9 @@ index 0000000..bd12b5f
 +    memset(f, 0, NB_TX_FRAME_LEN);
 +
 +    /* ---- Ethernet ---- */
-+    memset(f, 0xFF, 6);                 /* dst: 广播 */
++    /* [v19] 目的 MAC 从候选表取（见 nb_dstmac_tab 的说明）：0 = 标准广播，
++     * 1..3 = 厂商可用版本实测在用的三个地址。阶梯由 nb_dstmac_idx 控制。 */
++    memcpy(f, nb_dstmac_tab[nb_dstmac_idx & 3], 6);
 +    memcpy(f + 6, nb_mac, 6);           /* src: 本机 SMAP MAC */
 +    f[12] = 0x08;
 +    f[13] = 0x00;
@@ -1044,6 +1100,13 @@ index 0000000..bd12b5f
 +/*   6 = 收到回包但 IDENTIFY 没匹配上 -> 事务号或应答偏移不符             */
 +/*   7 = 读 LBA0 失败      -> 扇区数据没拿到                             */
 +/*   8 = LBA0 读到了但无 55AA 签名 -> 数据错位                           */
++/*   9 = 发了但收不到 + 自环自检结果 -> v19 新增，见 nb_loopback_selftest */
++/*       屏幕上那三个数是【自环】的读数，不是盒子的：                   */
++/*         收到过帧（fl bit19/bit22 置位或 nok>0）-> PS2 侧收包链路完好， */
++/*                                                    病在 PS2 之外      */
++/*         一帧都没有（全区 0）  -> PS2 自己就收不到帧，病在 MAC/MAL/BD  */
++/*       为什么自环读数可以直接用：走到 stage 9 的前提就是"盒子一个回包  */
++/*       都没有"，那时全部计数器本来就是 0，所以自环后读到的就是自环的。 */
 +/* 返回 0 且设置页显示 resident = 自检全过（含真读 LBA0），BD 设备已注册  */
 +/* ------------------------------------------------------------------ */
 +
@@ -1055,6 +1118,7 @@ index 0000000..bd12b5f
 +#define NB_STAGE_IDENTIFY 6
 +#define NB_STAGE_READ0    7
 +#define NB_STAGE_BOOTSIG  8
++#define NB_STAGE_LOOPBACK 9
 +
 +/* ------------------------------------------------------------------
 + * [v17] 链路诊断包 —— 失败时把「链路现场」整个编进返回值。
@@ -1655,6 +1719,131 @@ index 0000000..bd12b5f
 +    return nb_send(req, len);
 +}
 +
++/* ------------------------------------------------------------------
++ * [v19] 自环自检 —— 让 PS2 自己发一帧，再看它能不能自己收回来。
++ *
++ * 为什么必须有它（v18 实机结果）：
++ *     "FAIL noreply NO RX IRQ at all fl=0 n=0 k=0 (v18)"
++ * 这一行的意思是：从 v14 到 v18，收侧【任何一项】都是 0 ——
++ *   nrx = SMAP_R_RXFIFO_FRAME_CNT = 0
++ *        （MAL 的硬件收帧计数，【不依赖中断】，所以这个 0 可信）
++ *   fl & 1 = nb_dbg_intr_cb == 0
++ *        （DEV9 中断回调【一次都没被调用过】）
++ *   nok = nb_dbg_rx_ok = 0（一个帧都没交给钩子）
++ * 而同一时间发送侧是干净的：TxMODE0 的 GNP 位没挂（否则会报 TX ENGINE
++ * STUCK）、没有 DEAD_0/TX_ERR_0/SQE_ERR_0（否则会报 TX DEAD CARRIER）。
++ * 也就是说：**帧发得出去，却一个都没进过 PS2 的 MAC。**
++ *
++ * 剩下两种可能，修法完全相反，在屏幕上却完全同形：
++ *   (A) PS2 自己收不了 —— MAC 收方向没使能 / 地址过滤 / MAL / BD / 中断
++ *   (B) 帧压根没到 PS2 —— 盒子没发、线或 PHY 的收方向坏、对端不认我们的帧
++ *
++ * 分开它们唯一的办法是不经过任何外部设备：把 EMAC3 的【内部自环】打开
++ * （MODE1 bit30 = SMAP_E3_INLPBK_ENABLE），MAC 的发送数据路径就在芯片内部
++ * 接回接收路径，不经过 PHY、不经过网线、不经过盒子。
++ * 于是这一条自环通路恰好覆盖我们关心的整串：
++ *   TX 描述符 -> EMAC3 TX -> 内部回环 -> EMAC3 RX 地址过滤 ->
++ *   MAL RX FIFO -> RXEND 中断 -> HandleRxIntr -> 收帧钩子
++ * 结果因此是干净的二分：
++ *   收到过帧 -> PS2 侧数字逻辑全好 -> 病在 (B)（去查盒子 / 线 / PHY 收方向）
++ *   一帧没有 -> 病在 (A)，且范围已缩到上面这一串（去修 MAC/MAL/中断）
++ *
++ * ★ 为什么不用 PHY 自环（BMCR bit14）★
++ *   本机早已用 MDIO 证明 PHY 是活的：v17 实机读回 BMSR=0x2D（bit2 链路 +
++ *   bit5 自协商完成，都是真值；MDIO 悬空只会读回 0xFFFF）、LinkMode=100M
++ *   全双工。所以要问的【不是】"PHY 好不好"，而是"MAC/MAL/中断 这一串好不好"。
++ *   把 PHY 包进来的话，一旦失败反而分不清是哪一段；内自环把它排除在外，
++ *   答案因此是二元的、可直接行动。
++ *
++ * ★ 为什么自环读数可以直接当"自环的结果"用 ★
++ *   走到这里的前提是 stage 5 已经判定【盒子一个回包都没有】，那时全部计数器
++ *   本来就是 0（v18 实机报的 fl=0 n=0 k=0 就是证据），所以自环后读到的数
++ *   就是自环自己的。为稳妥仍然对【累加型】计数器取增量（见下面 cum[]），
++ *   而读寄存器型的量（MAL 计数、INTR_STAT、各寄存器）保留现场值。
++ *
++ * ★ 为什么不按 HandleRxIntr 的返回值判断 ★
++ *   HandleRxIntr 只在中断里被调用，而"中断跑不跑"本身就是待测项之一。
++ *   所以判据直接读 MAL 的硬件计数（不依赖中断）与中断回调计数，两者分开看：
++ *     MAL 有帧 + 中断回调为 0 -> 帧到了 MAL 却没人取走（中断没接上）
++ *     MAL 有帧 + 中断回调 >0   -> 整条收包路径（含中断、钩子）全好
++ *     MAL 无帧 + 中断回调为 0  -> MAC 压根没把帧收下来（使能/过滤/BD）
++ *
++ * 顺序：开自环 -> 发 2 帧真协议帧 -> 等 -> 采集 -> 关自环。
++ * 无论成败都会把自环关掉，绝不把 SMAP 留在自环状态。
++ * ------------------------------------------------------------------ */
++static void nb_loopback_selftest(void)
++{
++    static unsigned int base[20];
++    static u8 req[512];
++    int i, len, saved_idx;
++
++    /* 1) 基线：先采一次，供累加型计数器取增量用。 */
++    nb_snapshot();
++    for (i = 0; i < 20; i++)
++        base[i] = g_rxd[i];
++
++    /* 2) 自环期间的目的 MAC 必须能被自己收下：用候选表第 0 项（标准广播）。
++     *    此刻 nb_dstmac_idx 正停在阶梯试到的那个 ff:34:43:xx 上，虽然它是
++     *    多播地址、RxMODE 里 RX_MCAST 也开着，但没有必要赌。 */
++    saved_idx     = nb_dstmac_idx;
++    nb_dstmac_idx = 0;
++
++    if (smap_loopback_set(1) != 0) {
++        /* SMAP 从未初始化 —— 按前面 stage 4 的结论这不该发生，防一手。 */
++        nb_dstmac_idx = saved_idx;
++        return;
++    }
++
++    DelayThread(3 * 1000); /* 3ms：等自环位在 MAC 里生效 */
++
++    /* 3) 发两帧真协议帧（HS1 = 开机握手的第一帧）。走的是和真发完全一样的
++     *    TX 描述符 -> MAC 路径，只是出口被接到了自己身上。 */
++    g_txn = (u16)(g_txn + 1);
++    len   = nb_build_generic(req, (int)sizeof(req), NB_HS1,
++                             (int)(sizeof(NB_HS1) / sizeof(NB_HS1[0])), g_txn);
++    for (i = 0; i < 2 && len > 0; i++) {
++        nb_send(req, len);
++        DelayThread(5 * 1000); /* 5ms，和握手帧间隔一致 */
++    }
++
++    /* 4) 等自环帧走完 TX -> 回环 -> RX -> MAL -> 中断 -> 钩子 */
++    DelayThread(80 * 1000); /* 80ms */
++
++    /* 5) 采集现场 —— 此刻 g_rxd 里就是自环的结果 */
++    nb_snapshot();
++
++    /* 6) 只对【累加型】计数器取增量。索引见 smap_get_rx_diag 的 out[] 布局：
++     *      3 EMAC3 标志累计 OR      4 中断回调次数     5 RXEND 次数
++     *      6 EMAC3 事件次数          7 HandleRxIntr 次数 8 看到 FRAME_CNT>0 次数
++     *      9 交给钩子的帧数         10 因错误标志丢的帧数 11 第一条丢帧 ctrl_stat
++     *    不取增量的：0（MAL 硬件计数，读寄存器）、2（INTR_STAT，读寄存器）、
++     *    12~17（各寄存器现场值）、18（错误分类，本身是分类结果）。
++     *    这份名单与 tools/diag_pack_roundtrip_check.py 的布局表必须一致。 */
++    {
++        static const int cum[] = {3, 4, 5, 6, 7, 8, 9, 10, 11};
++        int k;
++
++        for (k = 0; k < (int)(sizeof(cum) / sizeof(cum[0])); k++) {
++            int j = cum[k];
++
++            g_rxd[j] = (g_rxd[j] >= base[j]) ? (g_rxd[j] - base[j]) : 0;
++        }
++    }
++
++    /* 7) 关自环、恢复目的 MAC。必须无条件执行 —— 不能让 SMAP 留在自环状态
++     *    （留着的话后面所有收发都只在芯片内部打转，现象更离奇）。 */
++    smap_loopback_set(0);
++    nb_dstmac_idx = saved_idx;
++
++    {
++        char msg[160];
++
++        sprintf(msg, "v19 loopback: mal=%u intr=%u rxend=%u rxintr=%u wait=%u ok=%u bad=%u",
++                g_rxd[0], g_rxd[4], g_rxd[5], g_rxd[7], g_rxd[8], g_rxd[9], g_rxd[10]);
++        nb_diag(msg);
++    }
++}
++
 +/* 开机握手：必须在第一次读扇区之前调用 */
 +static void nb_handshake(void)
 +{
@@ -1952,7 +2141,7 @@ index 0000000..bd12b5f
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.8 (raw SMAP + link reinit + rx/tx telemetry)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.9 (raw SMAP + dst-MAC ladder + loopback selftest)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -2101,11 +2290,20 @@ index 0000000..bd12b5f
 +     *    盒子可能刚上电还没就绪，或者内置盘在休眠（IDENTIFY 会顺带唤醒它，
 +     *    机械盘转起来要好几秒），所以重试窗口比 v12 放宽：6 轮 x 100ms，
 +     *    每轮里 IDENTIFY 自己还有 3 次 x 500ms。
++     *
++     *    [v19] 每轮换一个【目的 MAC 候选】（见 nb_dstmac_tab 的说明）：
++     *      第 0 轮 = 标准广播，也就是 v1~v18 一直用的那个；
++     *      第 1~3 轮 = 厂商可用版本实测在用的 ff:34:43:{00,30,52}:ff:ff。
++     *    这是驱动器与"厂商能用版本"之间唯一未验证过的差别 —— 我们从来没试过
++     *    盒子认不认标准广播。若盒子本来就接受广播，第 0 轮就成功，行为与之前
++     *    【完全一致】；所以这个改动没有回退风险，最坏情况只是多等 3 轮。
 +     */
 +    for (try = 0; try < 6 && sectors == 0; try++) {
-+        char msg[64];
++        char msg[80];
 +
-+        sprintf(msg, "handshake round %d (hook=%d)", try + 1, g_hook_calls);
++        nb_dstmac_idx = try & 3;
++        sprintf(msg, "handshake round %d dstmac_xx=%02x (hook=%d)",
++                try + 1, nb_dstmac_tab[nb_dstmac_idx][3], g_hook_calls);
 +        nb_diag(msg);
 +
 +        nb_handshake();
@@ -2113,10 +2311,47 @@ index 0000000..bd12b5f
 +        sectors = nb_identify_sectors();
 +    }
 +
-+    /* 失败要分清"根本没收到帧"和"收到帧了但对不上"：前者看 hook 计数，
-+     * 后者说明协议层（事务号/数据偏移）有问题。v12 这两种都一样是沉默。 */
-+    if (sectors == 0)
-+        return nb_fail(g_hook_calls == 0 ? NB_STAGE_NO_REPLY : NB_STAGE_IDENTIFY);
++    /*
++     * 失败要分清三种完全不同的情况。它们的修法各不相同，v12 之前在屏幕上
++     * 却都一样是沉默：
++     *   (i)  一个回包都没有（hook==0）—— 最麻烦的一种，见下面 v19 的处理
++     *   (ii) 收到过帧但对不上（hook!=0）—— 协议层问题（事务号/数据偏移）
++     */
++    if (sectors == 0) {
++        if (g_hook_calls != 0)
++            return nb_fail(NB_STAGE_IDENTIFY);
++
++        /*
++         * [v19] (i) 盒子一个回包都没有：在报出去【之前】先跑一次自环自检，
++         * 把剩下两种可能分开 —— 这是本轮唯一新增的判据：
++         *   PS2 自己发一帧、再自己收回来的内部自环（不经 PHY/网线/盒子）。
++         *     收到 -> PS2 侧数字逻辑全好 -> 病在 PS2 之外（盒子/线/PHY 收方向）
++         *     没有 -> PS2 自己就收不了 -> 病在 MAC/MAL/BD/中断
++         * 自环的读数随后由 nb_fail(NB_STAGE_LOOPBACK) 打包上屏。
++         * 注意只在 hook==0 时跑：收到过帧的情况跑它会把这几个计数器搅乱。
++         */
++        {
++            char msg[128];
++
++            sprintf(msg, "no reply: 6 rounds x 4 dst MAC candidates tried (hook=%d) -> loopback selftest",
++                    g_hook_calls);
++            nb_diag(msg);
++        }
++
++        nb_loopback_selftest();
++
++        return nb_fail(NB_STAGE_LOOPBACK);
++    }
++
++    {
++        /* 成功 —— 把"哪一轮 / 哪个目的 MAC 换来了回包"记到诊断通道上。
++         * 如果 xx 不是 ff，就说明盒子确实不认标准广播，这个值以后要固定下来。 */
++        char msg[96];
++
++        sprintf(msg, "reply ok at round %d dstmac_xx=%02x (hook=%d)",
++                try, nb_dstmac_tab[nb_dstmac_idx][3], g_hook_calls);
++        nb_diag(msg);
++    }
 +
 +    {
 +        char msg[80];
@@ -2184,10 +2419,10 @@ index 0000000..bd12b5f
 +}
 diff --git a/modules/netbox/netbox_imports.h b/modules/netbox/netbox_imports.h
 new file mode 100644
-index 0000000..19f5339
+index 0000000..5dc7d05
 --- /dev/null
 +++ b/modules/netbox/netbox_imports.h
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,144 @@
 +/*
 + * netbox_imports.h - PS2 NetBox 驱动对外的全部导入声明
 + *
@@ -2312,6 +2547,25 @@ index 0000000..19f5339
 + *    MDIO 是通的，所以第一件该做的事就是把这一刀补回来并看现场。 */
 +#define I_smap_phy_reinit DECLARE_IMPORT(8, smap_phy_reinit)
 +
++/* 9: EMAC3 内部自环开关（v19 新增）。
++ *    int smap_loopback_set(int on)
++ *    on != 0 打开自环（顺带把 MODE0 的收发使能与 RxMODE 的地址过滤再落一遍）；
++ *    on == 0 关闭自环（按位清 MODE1 的 bit30，不动 FDX/流控/速率/FIFO 那些位）。
++ *    返回 0 = 成功，-1 = SMAP 从未初始化过。
++ *
++ *    为什么要有它 —— v18 实机报回
++ *        "FAIL noreply NO RX IRQ at all fl=0 n=0 k=0 (v18)"
++ *    也就是收侧任何一项都是 0：MAL 的硬件收帧计数（不依赖中断）是 0、
++ *    DEV9 中断回调一次没跑过。而发送侧是干净的。于是只剩两种可能，
++ *    修法完全相反、屏幕上却同形：
++ *      (A) PS2 自己收不了（MAC 收方向 / 地址过滤 / MAL / BD / 中断）
++ *      (B) 帧压根没到 PS2（盒子没发 / 线或 PHY 收方向坏 / 对端不认我们的帧）
++ *    内自环把 MAC 的发送路径在芯片内部接回接收路径，不经 PHY/网线/盒子，
++ *    于是 ps2 侧通不通就变成一个二元答案 —— 这是唯一不依赖外部设备的判据。
++ *    不用 PHY 自环的原因：PHY 早被证明是活的（BMSR=0x2D 是真值），
++ *    把 PHY 包进来只会让失败原因变模糊。 */
++#define I_smap_loopback_set DECLARE_IMPORT(9, smap_loopback_set)
++
 +#endif /* __NETBOX_IMPORTS_H__ */
 diff --git a/modules/network/smap-ingame/Makefile b/modules/network/smap-ingame/Makefile
 index c99608d..aae4df1 100644
@@ -2326,10 +2580,10 @@ index c99608d..aae4df1 100644
  
 diff --git a/modules/network/smap-ingame/exports.tab b/modules/network/smap-ingame/exports.tab
 new file mode 100644
-index 0000000..10d2153
+index 0000000..8fafcd0
 --- /dev/null
 +++ b/modules/network/smap-ingame/exports.tab
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,124 @@
 +/*
 + * [NETBOX] 把 smap-ingame 变成「可被外部模块复用的 SMAP 原始帧收发器」。
 + *
@@ -2423,6 +2677,24 @@ index 0000000..10d2153
 + *   6  smap_get_rx_diag      int  smap_get_rx_diag(unsigned int *out, int n)
 + *   7  smap_get_phy_dump     int  smap_get_phy_dump(unsigned int *out, int n)   (返回链路模式码)
 + *   8  smap_phy_reinit       int  smap_phy_reinit(unsigned int *out, int n)     (补跑 InitPHY + 现场快照)
++ *   9  smap_loopback_set     int  smap_loopback_set(int on)                     (EMAC3 内部自环开关)
++ *
++ * v19（2026-09-25）再新增一个符号 —— 起因：v18 实机报回
++ * "FAIL noreply NO RX IRQ at all fl=0 n=0 k=0"，也就是收侧【任何一项】都是 0
++ * （连 DEV9 中断回调都没被调用过一次），而与此同时发送侧是干净的。
++ * "帧没进 PS2 的 MAC"背后有两种修法完全相反的原因（PS2 自己收不了 / 帧压根
++ * 没到 PS2），屏幕上完全同形。分开它们唯一不依赖盒子的办法就是让 PS2
++ * 自己发一帧再自己收回来 —— 也就是 EMAC3 的内部自环：
++ *
++ *   smap_loopback_set()  —— 打开/关闭 EMAC3 MODE1 的 bit30（internal loop
++ *     back）。这一位把 MAC 的发送数据路径在【芯片内部】接回接收路径，不经
++ *     PHY、不经网线、不经盒子，恰好覆盖 TX 描述符 -> MAC -> 地址过滤 ->
++ *     MAL RX FIFO -> RXEND 中断 -> HandleRxIntr -> 收帧钩子 这一整串。
++ *     通了说明 PS2 侧全好（去查盒子/线/PHY 收方向）；不通说明就是这个自环
++ *     回路里的某一段坏了，范围已经被缩到很小。
++ *     为什么不用 PHY 自环（BMCR bit14）：PHY 早被证明是活的（v17 实测
++ *     BMSR=0x2D 是真值、LinkMode=100M 全双工），把 PHY 包进来只会让失败
++ *     的原因变模糊。
 + */
 +DECLARE_EXPORT_TABLE(netboxh, 1, 0)
 +	DECLARE_EXPORT(_start)
@@ -2434,6 +2706,7 @@ index 0000000..10d2153
 +	DECLARE_EXPORT(smap_get_rx_diag)
 +	DECLARE_EXPORT(smap_get_phy_dump)
 +	DECLARE_EXPORT(smap_phy_reinit)
++	DECLARE_EXPORT(smap_loopback_set)
 +END_EXPORT_TABLE
 diff --git a/modules/network/smap-ingame/imports.lst b/modules/network/smap-ingame/imports.lst
 index 22375b2..f380f5a 100644
@@ -2619,16 +2892,17 @@ index 76da054..0743d6b 100644
      } else
          result = MODULE_RESIDENT_END; // Initialized ok.
 diff --git a/modules/network/smap-ingame/main.h b/modules/network/smap-ingame/main.h
-index b3b1796..d557d8e 100644
+index b3b1796..dc8f134 100644
 --- a/modules/network/smap-ingame/main.h
 +++ b/modules/network/smap-ingame/main.h
-@@ -30,6 +30,19 @@ int SMAPStart(void);
+@@ -30,6 +30,21 @@ int SMAPStart(void);
  void SMAPStop(void);
  int SMAPGetMACAddress(unsigned char *buffer);
  
 +/* [NETBOX] netboxh 库额外导出的符号（编号必须与 exports.tab 严格一致）：
 + *   1 smap_set_rx_hook / 2 SMAPSendPacket / 3 SMAPGetMACAddress / 4 smap_get_link_status
 + *   5 smap_get_rx_hook / 6 smap_get_rx_diag / 7 smap_get_phy_dump / 8 smap_phy_reinit
++ *   9 smap_loopback_set（v19：EMAC3 内部自环开关，见 exports.tab 末尾说明）
 + * 编号就是 DECLARE_EXPORT 在 exports.tab 里的下标（0 = _start）。
 + * ps2sdk 的 loadcore 按 fptps[stubtmp] 取，没有 -1 偏移；越界会被 cleanStub()
 + * 改写成 jr $ra 的空桩 —— 不报错，只是静默变哑巴。
@@ -2638,12 +2912,13 @@ index b3b1796..d557d8e 100644
 +int smap_get_rx_diag(unsigned int *out, int n);
 +int smap_get_phy_dump(unsigned int *out, int n);
 +int smap_phy_reinit(unsigned int *out, int n);
++int smap_loopback_set(int on);
 +
  void SMapLowLevelInput(struct pbuf *pBuf);
  
  #include "xfer.h"
 diff --git a/modules/network/smap-ingame/smap.c b/modules/network/smap-ingame/smap.c
-index f43eb20..a7c70e9 100644
+index f43eb20..e7a5aa8 100644
 --- a/modules/network/smap-ingame/smap.c
 +++ b/modules/network/smap-ingame/smap.c
 @@ -355,9 +355,32 @@ static unsigned int LinkCheckTimerCB(struct SmapDriverData *SmapDrivPrivData)
@@ -2710,7 +2985,7 @@ index f43eb20..a7c70e9 100644
              SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_RXEND;
              HandleRxIntr(&SmapDriverData);
          }
-@@ -674,3 +714,465 @@ int SMAPGetMACAddress(unsigned char *buffer)
+@@ -674,3 +714,538 @@ int SMAPGetMACAddress(unsigned char *buffer)
  
      return 0;
  }
@@ -3175,6 +3450,79 @@ index f43eb20..a7c70e9 100644
 +    out[11] = (unsigned int)rc | (1u << 4);
 +
 +    return (rc == 0) ? 0 : 1;
++}
++
++/* ---------------------------------------------------------------------------
++ * [v19] EMAC3 内部自环开关（netboxh 导出编号 9）
++ *
++ * 起因：v18 实机报回
++ *     "FAIL noreply NO RX IRQ at all fl=0 n=0 k=0 (v18)"
++ * 于是把 v14~v18 的所有读数摆到一起，得到一个很硬的事实：
++ *   - 发送侧一直是干净的：TxMODE0 的 GNP 位没挂、没有 DEAD_0/TX_ERR_0/SQE_ERR_0；
++ *   - 接收侧一直是全 0：MAL 的硬件收帧计数 SMAP_R_RXFIFO_FRAME_CNT 从 v14
++ *     到 v18 读到的一直是 0（这是硬件计数、【不依赖中断】，所以它可信）；
++ *     连 DEV9 中断回调 nb_dbg_intr_cb 都一次没被调用过。
++ * 也就是：**一个帧都没进过 PS2 的 MAC。**
++ *
++ * 而"帧没进 MAC"背后有两种修法完全相反的原因，在屏幕上完全同形：
++ *   (A) PS2 自己收不了 —— MAC 收方向没使能 / 地址过滤 / MAL / BD / 中断
++ *   (B) 帧压根没到 PS2 —— 盒子没发、线或 PHY 的收方向坏、对端不认我们的帧
++ *
++ * 分开它们唯一不依赖外部的办法，是让 PS2 自己发一帧再自己收回来：
++ *   EMAC3 MODE1 的 bit30 = SMAP_E3_INLPBK_ENABLE（internal loop back）
++ *   会把 MAC 的发送数据路径【在芯片内部】接回接收数据路径 ——
++ *   不经过 PHY、不经过网线、不经过盒子。
++ * 这条自环通路恰好覆盖了我们关心的整串：
++ *   TX 描述符 -> EMAC3 TX -> 内部回环 -> EMAC3 RX 地址过滤 ->
++ *   MAL RX FIFO -> RXEND 中断 -> HandleRxIntr -> 收帧钩子
++ * 于是结果是一个干净的二分：
++ *   自环能收到  => PS2 侧数字逻辑全好，病在 (B)
++ *   自环也收不到 => 病在 (A)，且范围已经缩到上面这一串
++ *
++ * ★ 为什么用内自环而不是 PHY 自环（BMCR bit14）★
++ *   本机早已用 MDIO 证明 PHY 是活的：v17 实机读回 BMSR=0x2D（bit2 链路 +
++ *   bit5 自协商完成，都是真值，MDIO 悬空只会读回 0xFFFF）、LinkMode=100M
++ *   全双工。所以现在要问的【不是】"PHY 好不好"，而是"MAC/MAL/中断 这一串
++ *   好不好"。PHY 自环会把 PHY 也包进来，一旦失败反而分不清是哪一段；
++ *   内自环把 PHY 排除在外，答案因此是二元的、可行动的。
++ *
++ * ★ 打开自环时顺带把 MAC 使能与地址过滤再落一遍 ★
++ *   自环帧也要过地址过滤，而 MODE0 的使能位是 SMAPStart() 在
++ *   "PHY 从未被初始化"的前提下落的（见 SMAPStart 第 471-490 行与
++ *   smap_phy_reinit 第 5b 段）。这里按上游原样再写一遍，保证自环测的是
++ *   "这一串到底通不通"，而不是"使能位有没有被落下"。
++ *
++ * 返回：0 = 成功；-1 = SMAP 从未初始化过（SmapIsInitialized==0）。
++ * --------------------------------------------------------------------------- */
++int smap_loopback_set(int on)
++{
++    /* ★ 变量名必须是 emac3_regbase（宏里写死的裸标识符，见 SmapSyncLinkMode
++     * 第 970-979 行的说明）；改名会直接编译报 undeclared。 */
++    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
++    u32 v;
++
++    if (!SmapDriverData.SmapIsInitialized)
++        return -1;
++
++    v = SMAP_EMAC3_GET32(SMAP_R_EMAC3_MODE1);
++
++    if (on) {
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE1, v | (u32)SMAP_E3_INLPBK_ENABLE);
++
++        /* 自环帧必须能被收下：把 MAC 收发使能与地址过滤按上游原样再落一遍
++         * （MODE0 取 SMAPStart 第 479 行那一对，RxMODE 取 smap_init 第 668 行
++         * 那一组，含 RX_BCAST）。 */
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE0, SMAP_E3_TXMAC_ENABLE | SMAP_E3_RXMAC_ENABLE);
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_RxMODE,
++                         SMAP_E3_RX_STRIP_PAD | SMAP_E3_RX_STRIP_FCS |
++                             SMAP_E3_RX_INDIVID_ADDR | SMAP_E3_RX_BCAST | SMAP_E3_RX_MCAST);
++    } else {
++        /* 关自环时必须【按位清】而不是整寄存器覆写 —— MODE1 里还有 FDX、
++         * 流控、媒体速率、FIFO 大小这些 smap_init()/InitPHY() 落下的位。 */
++        SMAP_EMAC3_SET32(SMAP_R_EMAC3_MODE1, v & ~((u32)SMAP_E3_INLPBK_ENABLE));
++    }
++
++    return 0;
 +}
 diff --git a/modules/network/smap-ingame/xfer.c b/modules/network/smap-ingame/xfer.c
 index 25111a0..d37bccb 100644
@@ -3687,10 +4035,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..dc1efed 100644
+index 1054228..0e61d00 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,255 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,292 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -3750,15 +4098,18 @@ index 1054228..dc1efed 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v17)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v19)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
 +        static char netboxStatus[160];
-+        /* 与驱动 NB_STAGE_* 一一对应；下标 1..8 有效。 */
++        /* 与驱动 NB_STAGE_* 一一对应；下标 1..9 有效。
++         * 9 = loopback 是 v19 新增：那时候报的是【自环自检】的读数，
++         *     不是盒子的读数（走到 9 的前提就是盒子一个回包都没有）。 */
 +        static const char *stageName[] = {
-+            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig"
++            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig",
++            "loopback"
 +        };
 +        int stage = 0;
 +
@@ -3868,6 +4219,40 @@ index 1054228..dc1efed 100644
 +                snprintf(netboxStatus, sizeof(netboxStatus),
 +                         "NetBox: FAIL %s fl=%u e=%u tx=%u (v18)",
 +                         stageName[stage], fl, e18, txst);
++            } else if (stage == 9) {
++                /* [v19] 自环自检结果 —— 见 netbox_bd.c 的 nb_loopback_selftest()。
++                 *
++                 * 走到这里的前提是【盒子一个回包都没有】，所以下面这几个数
++                 * 报的【不是盒子的读数，而是 PS2 自己发的自环帧的读数】：
++                 * 驱动把 EMAC3 的内部自环打开，发两帧真协议帧，让它们
++                 * 在芯片内部回到自己的接收路径 —— 不经过 PHY、网线、盒子。
++                 * 于是这四个分支把剩下的可能一次分完：
++                 *
++                 *   nrx>0 且没中断   帧真的进了 MAL，但没人取 —— 缺的就是"中断"
++                 *   fl&1 且 nok>0    整条收包路径（中断+HandleRxIntr+钩子）全好
++                 *   fl&1 但 nok==0   中断跑了却没帧交给钩子 —— 帧在驱动里被丢了
++                 *   全 0             PS2 自己就收不到帧 —— MAC 收方向/过滤/MAL/BD
++                 *
++                 * 字段含义（v18 位布局，stage 9 复用同一组位）：
++                 *   fl & 1  = bit19 = DEV9 中断回调跑过（g_rxd[4]）
++                 *   fl & 8  = bit22 = HandleRxIntr 见过 MAL 里有帧（g_rxd[8]）
++                 *   nrx     = MAL 硬件收帧计数（不依赖中断）
++                 *   nok     = 真正交给收帧钩子的帧数
++                 * 注意 fl&8 其实蕴含 fl&1（HandleRxIntr 只在中断里被调用），
++                 * 所以"帧在 MAL 里没人取"这个判断必须看 nrx，不能看 fl&8。 */
++                if (nrx > 0u && !(fl & 1u)) {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LOOPBACK: MAL frames, no IRQ nrx=%u (v19)", nrx);
++                } else if ((fl & 1u) && nok > 0u) {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LOOPBACK OK: PS2 rx path fine (v19)");
++                } else if (fl & 1u) {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LOOPBACK: IRQ ran, no frame nrx=%u (v19)", nrx);
++                } else {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LOOPBACK DEAD: PS2 never rx (v19)");
++                }
 +            } else {
 +                /* [v18] 链路已经确认是通的（否则会停在 stage 2），
 +                 * 所以这里要回答的不再是"线通不通"，而是
@@ -3909,7 +4294,7 @@ index 1054228..dc1efed 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v18)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v19)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
