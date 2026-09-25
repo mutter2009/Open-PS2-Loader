@@ -1,11 +1,73 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
-index 8055448..5d21d34 100644
---- a/.github/workflows/opl-netbox.yml
+new file mode 100644
+index 0000000..cfd5b6b
+--- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -62,6 +62,159 @@ jobs:
-             echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
-             strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
-             echo
+@@ -0,0 +1,253 @@
++# [NETBOX] 云端编译 OPL + netbox 驱动
++#
++# 为什么要有这个 workflow：
++#   netbox.patch 只是一个"补丁文件"，光把它上传到仓库不会改动任何代码。
++#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
++#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
++#
++# 触发方式：只允许手动触发（Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow）
++#          刻意不配置 push 触发，这样每次改动/上传文件都不会自动编译。
++name: OPL-netbox
++
++on:
++  workflow_dispatch:
++
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    container: ghcr.io/ps2homebrew/ps2homebrew:main
++    steps:
++      - name: git checkout
++        uses: actions/checkout@v4
++
++      - name: Full history
++        run: |
++          git config --global --add safe.directory "$GITHUB_WORKSPACE"
++          git fetch --prune --unshallow || true
++
++      - name: 补丁指纹（确认编的是哪一版补丁）
++        run: |
++          sha256sum netbox.patch
++          grep -c '^diff --git' netbox.patch
++
++      - name: Apply netbox patch
++        run: |
++          git apply --verbose --exclude='.github/workflows/*' netbox.patch
++
++      - name: Compile -> make clean release
++        run: make --trace clean release
++
++      # 关键：发布版 ELF 是 ps2-packer 压缩过的，字符串全没了，
++      # 没法用它判断"驱动到底有没有编进去"。所以这里另外收集证据：
++      # 未压缩的 opl.elf、链接 map、以及 bin2c 产物。
++      - name: Collect verification info
++        if: ${{ always() }}
++        run: |
++          {
++            echo "=== netbox.patch sha256（对着我给的哈希核对版本）==="
++            sha256sum netbox.patch
++            echo
++            echo "=== modules/netbox IRX 产物 ==="
++            ls -la modules/netbox/*.irx 2>&1
++            echo
++            echo "=== bin2c 产物 asm/netbox.c ==="
++            ls -la asm/netbox.c 2>&1
++            echo
++            echo "=== 目标文件 obj/netbox.o ==="
++            ls -la obj/netbox.o 2>&1
++            echo
++            echo "=== opl.map 里的 netbox 符号（证明链进了 ELF）==="
++            grep -i netbox opl.map 2>&1 | head -30
++            echo
++            echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
++            strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
++            echo
 +            echo "=== [v12 关键证据] SMAP 原始帧钩子的接线是否真的编进了二进制 ==="
 +            echo "--- smap-ingame 的导出表必须含库名 netboxh ---"
 +            ls -la modules/network/smap-ingame/smap.irx 2>&1
@@ -39,7 +101,7 @@ index 8055448..5d21d34 100644
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.13 ... PHY loopback + A/B listen + linkchk（看到 v1.13 才是本轮；v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.14 ... PHY loopback + A/B listen + linkchk + unified screen tag（看到 v1.14 才是本轮；v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -58,7 +120,9 @@ index 8055448..5d21d34 100644
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.13 标记           : $(grep -a -c 'v1.13' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.14 标记           : $(grep -a -c 'v1.14' modules/netbox/netbox.irx 2>&1)"
++            echo "build-tag v24 诊断行 : $(grep -a -c 'build-tag v24' modules/netbox/netbox.irx 2>&1)"
++            echo "factory-aligned 标记 : $(grep -a -c 'factory-aligned tx frame' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
 +            echo "A/B listen     : $(grep -a -c 'A/B listen' modules/netbox/netbox.irx 2>&1)"
@@ -68,7 +132,19 @@ index 8055448..5d21d34 100644
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v23)'   : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v24)'   : $(grep -a -c 'resident (raw SMAP v24)' opl.elf 2>&1)"
++            echo
++            echo "=== ★[v24 关键闸] 屏幕版本标记唯一 —— 末尾那个 \"(vNN)\" 不许再硬编码 ==="
++            echo "起因：v23 的构建在 stage 6 屏幕上打出 \"(v18)\"、在 stage 11 打出 \"(v22)\"，"
++            echo "      看着像补丁没生效。根因是每条状态串各自硬编码了自己新增那一版的后缀。"
++            echo "约定：后缀一律走 NB_UITAG；字面量只允许 2 处（宏定义 + resident 串）。"
++            echo "--- 旧式硬编码后缀的条数，必须为 0 ---"
++            echo "OPL.elf 里旧后缀 (v17)/(v18)/(v20)/(v21)/(v22) 合计: $(strings -a opl.elf 2>/dev/null | grep -c -E '\((v17|v18|v20|v21|v22)\)' )"
++            echo "--- 新标记必须存在 ---"
++            echo "OPL.elf: '(v24)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v24)')"
++            echo "OPL.elf: 'NB_UITAG' 不该出现     : $(strings -a opl.elf 2>/dev/null | grep -c -F 'NB_UITAG')  （宏会被展开，非 0 说明写法有误）"
++            echo "gui.c: '#define NB_UITAG \"(v24)\"' : $(grep -a -c '#define NB_UITAG "(v24)"' src/gui.c 2>&1)"
++            echo "（前两条：旧后缀=0、新标记>=28 才算过；上面任一条不满足就是屏幕又会撒谎）"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
@@ -152,16 +228,35 @@ index 8055448..5d21d34 100644
 +            echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v23)'      : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v24)'      : $(grep -a -c 'resident (raw SMAP v24)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
 +            echo
-             echo "=== 产物清单 ==="
-             ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
-           } > verify.txt 2>&1
++            echo "=== 产物清单 ==="
++            ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
++          } > verify.txt 2>&1
++          cat verify.txt
++
++      - name: Upload ELF（PS2 用这个）
++        if: ${{ success() }}
++        uses: actions/upload-artifact@v4
++        with:
++          name: OPNPS2LD-netbox
++          path: OPNPS2LD-*.ELF
++
++      - name: Upload build evidence（排查用，别拷进 PS2）
++        if: ${{ always() }}
++        uses: actions/upload-artifact@v4
++        with:
++          name: netbox-build-verify
++          if-no-files-found: warn
++          path: |
++            verify.txt
++            opl.elf
++            opl.map
 diff --git a/Makefile b/Makefile
 index d02af90..587fc44 100644
 --- a/Makefile
@@ -621,10 +716,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..751549c
+index 0000000..90ae7f7
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2413 @@
+@@ -0,0 +1,2464 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -943,12 +1038,30 @@ index 0000000..751549c
 +/* ------------------------------------------------------------------ */
 +
 +/*
-+ * 发送缓冲与长度：NB_TX_FRAME_LEN（512）在 netbox.h 里定义，理由见那里的注释。
++ * 发送缓冲与长度：NB_TX_FRAME_LEN（512）在 netbox.h 里定义 —— 那是【缓冲上限】。
++ * [v24] 实际发出去的字节数不再等于缓冲上限，而是每次由 nb_build_frame 按
++ *       原厂的 256/384/512 档位算出来放在 nb_tx_len 里，理由见其注释。
 + * 帧尾在记录流结束之后补零 —— 原厂 loader 那里是未初始化内存，盒子照回不误。
 + */
 +static u8  nb_tx[NB_TX_FRAME_LEN];
 +static u8  nb_mac[6];
 +static u16 nb_ipid = 1;
++
++/*
++ * [v24] 本次实际要发的长度（由 nb_build_frame 按需算好）。
++ *
++ * 为什么要动态而不是恒定 NB_TX_FRAME_LEN：2026-09-25 的桥接抓包里，
++ * 【我们】发的每一帧都是 512 字节（记录流之后全零补齐），而【原厂】在
++ * 同一台盒子上发的同类请求帧是 256 字节 —— 两条流逐字节比对后，除了
++ * 源 MAC 之外这是仅剩的差别。既然原厂 256 字节的帧盒子会回，就没必要
++ * 赌"盒子容忍 512"，直接按原厂的规矩来。
++ *
++ * 取整规则（对齐原厂实测的 256 / 384 / 512 三档）：
++ *     256 字节起步，(14+20+8+载荷) 向上取整到 256 的倍数。
++ * 小请求（握手/IDENTIFY，载荷 30~60 字节）⇒ 256，与原厂逐字节同类。
++ * 大请求自动涨到 512 甚至 768，所以不会因为改小了上限而发不出去。
++ */
++static int nb_tx_len = NB_TX_FRAME_LEN;
 +
 +/* ------------------------------------------------------------------
 + * [v19] 目的 MAC 候选表 —— 驱动器与"厂商可用版本"之间唯一未验证的差异。
@@ -1000,7 +1113,8 @@ index 0000000..751549c
 +}
 +
 +/*
-+ * 组一个 ETH + IPv4 + UDP 帧，返回整帧长度（固定 NB_TX_FRAME_LEN）。
++ * 组一个 ETH + IPv4 + UDP 帧，返回整帧长度（[v24] 起 = nb_tx_len，
++ * 256 字节起步、按 256 的倍数向上取整；不再是固定的 NB_TX_FRAME_LEN）。
 + *
 + * 逐字段对齐原厂 loader 的真实请求帧（2026-09-23 桥接抓包）：
 + *   ETH dst = 【候选表】          v19 起是阶梯，见 nb_dstmac_tab：
@@ -1019,7 +1133,7 @@ index 0000000..751549c
 +static int nb_build_frame(const u8 *payload, int paylen, u16 dport)
 +{
 +    u8 *f = nb_tx;
-+    int iplen, udplen;
++    int iplen, udplen, flen;
 +    u16 c;
 +
 +    if (paylen < 0 || (NB_UDP_OFF + paylen) > NB_TX_FRAME_LEN)
@@ -1028,13 +1142,30 @@ index 0000000..751549c
 +    iplen  = NB_IP_HDR + NB_UDP_HDR + paylen;
 +    udplen = NB_UDP_HDR + paylen;
 +
-+    memset(f, 0, NB_TX_FRAME_LEN);
++    /* [v24] 帧长：256 起步、向上取整到 256 的倍数（见 nb_tx_len 的说明）。 */
++    flen = (NB_UDP_OFF + paylen + 255) & ~255;
++    if (flen < 256)
++        flen = 256;
++    if (flen > NB_TX_FRAME_LEN)
++        flen = NB_TX_FRAME_LEN;
++    nb_tx_len = flen;
++
++    memset(f, 0, flen);
 +
 +    /* ---- Ethernet ---- */
 +    /* [v19] 目的 MAC 从候选表取（见 nb_dstmac_tab 的说明）：0 = 标准广播，
 +     * 1..3 = 厂商可用版本实测在用的三个地址。阶梯由 nb_dstmac_idx 控制。 */
 +    memcpy(f, nb_dstmac_tab[nb_dstmac_idx & 3], 6);
-+    memcpy(f + 6, nb_mac, 6);           /* src: 本机 SMAP MAC */
++    /* [v24] src = 全零 —— 对齐原厂。
++     *
++     * 2026-09-25 的桥接抓包里，原厂发出来的每一帧源 MAC 都是
++     * 00:00:00:00:00:00，而我们从 v1 起一直填本机 SMAP MAC。
++     * 这一条【经实测是安全的】：同一份抓包里盒子的 11182 个应答帧中，
++     * 10905 个的目的 MAC 是标准广播 ff:ff:ff:ff:ff:ff（源 08:00:27:7f:f6:27）
++     * —— 盒子【不学习】请求的源 MAC，应答地址是写死的广播，所以把源 MAC
++     * 归零不会让应答发错地方。而它恰好是"原厂能做、我们没做"的差别之一。
++     * nb_mac 保留（诊断通道要打出来），只是不再写进以太头。 */
++    memset(f + 6, 0, 6);                /* src: 全零，与原厂一致 */
 +    f[12] = 0x08;
 +    f[13] = 0x00;
 +
@@ -1069,7 +1200,7 @@ index 0000000..751549c
 +    memcpy(f + NB_UDP_OFF, payload, paylen);
 +
 +    nb_ipid++;
-+    return NB_TX_FRAME_LEN;
++    return nb_tx_len;
 +}
 +
 +/* 发一个协议请求。返回 SMAPSendPacket 的结果（1 = 成功，-1 = SMAP 未初始化） */
@@ -1080,7 +1211,7 @@ index 0000000..751549c
 +    if (nb_build_frame(payload, len, NB_PORT) < 0)
 +        return -1;
 +
-+    r = SMAPSendPacket(nb_tx, NB_TX_FRAME_LEN);
++    r = SMAPSendPacket(nb_tx, nb_tx_len);   /* [v24] 用本次算好的长度（256 起步） */
 +    if (r < 0)
 +        g_tx_err++; /* -1 = SmapIsInitialized==0：PHY/链路没起来，见上面的注释 */
 +
@@ -1105,7 +1236,7 @@ index 0000000..751549c
 +        return;
 +
 +    if (nb_build_frame((const u8 *)buf, len, NB_DIAG_PORT) > 0)
-+        SMAPSendPacket(nb_tx, NB_TX_FRAME_LEN);
++        SMAPSendPacket(nb_tx, nb_tx_len);   /* [v24] 用本次算好的长度 */
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -2721,7 +2852,7 @@ index 0000000..751549c
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.13 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.14 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -2864,6 +2995,21 @@ index 0000000..751549c
 +        return nb_fail(NB_STAGE_TX);
 +    }
 +    nb_diag("SMAP tx ready");
++
++    /*
++     * [v24] 构建标记 —— 诊断通道上的【第一条】。
++     *
++     * 为什么必须有它：屏幕上的版本后缀曾经是逐条硬编码的（v23 的构建在
++     * stage 6 显示 "(v18)"、v22 的构建在 stage 11 显示 "(v22)"），于是
++     * "屏幕上写的是哪一版"完全不能用来确认【刷进去的是哪一版】。
++     * 从这一版起：屏幕侧统一走 gui.c 的 NB_UITAG，抓包侧由这一行负责 ——
++     * 只要 pcap 里看到这一行，后面所有行的语义就确定属于哪一版构建。
++     *
++     * 位置选在这里（而不是 _start 一进来）是有意的：这一行要用 UDP 发出去，
++     * 前面三关（钩子 / 链路 / 发送）只要有一关不过，帧本来就出不了网卡，
++     * 早放也没有意义 —— 这里是"确定发得出去"之后的第一行。
++     */
++    nb_diag("netbox_bd v1.14 build-tag v24 (screen tag unified)");
 +
 +    /*
 +     * 5) 开机握手（激活盒子）+ 探容量。
@@ -4835,10 +4981,33 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..b7d9e75 100644
+index 1054228..14371c5 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,477 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -437,20 +437,500 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+     }
+ }
+ 
++/* ------------------------------------------------------------------
++ * [v24] 屏幕版本标记 —— 唯一来源，绝不再逐条硬编码。
++ *
++ * 为什么要把这个宏单独拎出来（踩过两次，第三次不许再踩）：
++ *   v23 那一轮的屏幕上写着 v18 的旧标记、再上一轮写着 v22 的旧标记，而跑的都是当时
++ *   最新的构建 —— 于是"屏幕上的版本号"就完全不能用来确认【刷进去的到底是
++ *   哪一版】，看着像补丁没生效。根因不是解码错了，而是每条 FAIL 串各自
++ *   硬编码了它【当年新增时】的版本号（v17/v18/v20/v21/v22 混在一起）。
++ *
++ * 规则（工具 tools/diag_pack_roundtrip_check.py 里有对应的静态闸）：
++ *   1) 屏幕上所有 NetBox 状态串的版本后缀一律写 NB_UITAG；
++ *   2) gui.c 里【不允许】再出现字面量的旧式后缀（vNN 紧跟右引号那种写法）；
++ *   3) 升版本时只改这一个宏（外加下面 resident 串里的 vNN），
++ *      这样"屏幕版本"与"构建版本"永远一致。
++ *
++ * 语义信息（哪一格、哪种病）由串里的措辞本身承载，不靠这个后缀 —— 所以
++ * 统一成同一个值不丢任何东西。
++ * ------------------------------------------------------------------ */
++#define NB_UITAG "(v24)"
++
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -4862,7 +5031,7 @@ index 1054228..b7d9e75 100644
 +    //   netbox LOAD REFUSED        -> 第 2 关没过：IOP 拒绝加载 netbox.irx
 +    //                                 （库名/版本/函数号对不上，或导入解析不到）
 +    //   driver START FAILED        -> 装上了但 _start() 早退
-+    //   FAIL ... (v17)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
++    //   FAIL ... (v24)             -> 驱动自检失败。它【故意不驻留】（注册了 BD
 +    //                                 设备也读不出来，不如直接报），并把失败现场
 +    //                                 整串编进返回值。
 +    //
@@ -4898,7 +5067,7 @@ index 1054228..b7d9e75 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v23)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v24)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验 + 两格自环 + A/B
 +    //                                 监听 + stage12 链路/TX 体检），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
@@ -4993,24 +5162,24 @@ index 1054228..b7d9e75 100644
 +                switch (code) {
 +                case 1:
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link PHY mdio ALL ZERO - EMAC3 not running (v17)");
++                             "NetBox: FAIL link PHY mdio ALL ZERO - EMAC3 not running NB_UITAG");
 +                    break;
 +                case 2:
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link NO PHY (mdio floats FFFF) - check port (v17)");
++                             "NetBox: FAIL link NO PHY (mdio floats FFFF) - check port NB_UITAG");
 +                    break;
 +                case 3:
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link PHY non-DP83846 + BMSR unreadable (v17)");
++                             "NetBox: FAIL link PHY non-DP83846 + BMSR unreadable NB_UITAG");
 +                    break;
 +                case 5:
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link BMSR unreadable bmsr=%02X sts=%02X (v17)",
++                             "NetBox: FAIL link BMSR unreadable bmsr=%02X sts=%02X NB_UITAG",
 +                             bmsr, sts);
 +                    break;
 +                case 8:
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link PHY reset stuck (bmcr RST never clears) (v17)");
++                             "NetBox: FAIL link PHY reset stuck (bmcr RST never clears) NB_UITAG");
 +                    break;
 +                default:
 +                    /* ★最可能的一条★ —— BMSR 明确报"没有链路"。
@@ -5020,19 +5189,19 @@ index 1054228..b7d9e75 100644
 +                     *   lm 全 0                -> LinkMode 根本没被算出来
 +                     * 例：bmsr=60 sts=00 lm=00 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL link DOWN bmsr=%02X sts=%02X lm=%02X (v17)",
++                             "NetBox: FAIL link DOWN bmsr=%02X sts=%02X lm=%02X NB_UITAG",
 +                             bmsr, sts, lm);
 +                    break;
 +                }
 +            } else if (stage == 1) {
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL hook (rx hook not installed - netboxh is a stub) (v17)");
++                         "NetBox: FAIL hook (rx hook not installed - netboxh is a stub) NB_UITAG");
 +            } else if (stage == 3 || stage == 4) {
 +                /* 3 = MAC 全零（smap_init 没跑完）/ 4 = SMAPSendPacket 恒 -1。
 +                 * 这两关在链路闸之后、与收发路径的计数关系不直接，只把
 +                 * v18 的原值印出来，别硬套下面的短语。 */
 +                snprintf(netboxStatus, sizeof(netboxStatus),
-+                         "NetBox: FAIL %s fl=%u e=%u tx=%u (v18)",
++                         "NetBox: FAIL %s fl=%u e=%u tx=%u NB_UITAG",
 +                         stageName[stage], fl, e18, txst);
 +            } else if (stage == 9) {
 +                /* [v19] 自环自检结果 —— 见 netbox_bd.c 的 nb_loopback_selftest()。
@@ -5057,16 +5226,16 @@ index 1054228..b7d9e75 100644
 +                 * 所以"帧在 MAL 里没人取"这个判断必须看 nrx，不能看 fl&8。 */
 +                if (nrx > 0u && !(fl & 1u)) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK: MAL frames, no IRQ nrx=%u (v20)", nrx);
++                             "NetBox: FAIL noreply LOOPBACK: MAL frames, no IRQ nrx=%u NB_UITAG", nrx);
 +                } else if ((fl & 1u) && nok > 0u) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK OK: PS2 rx path fine (v20)");
++                             "NetBox: FAIL noreply LOOPBACK OK: PS2 rx path fine NB_UITAG");
 +                } else if (fl & 1u) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK: IRQ ran, no frame nrx=%u (v20)", nrx);
++                             "NetBox: FAIL noreply LOOPBACK: IRQ ran, no frame nrx=%u NB_UITAG", nrx);
 +                } else {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK DEAD: PS2 never rx (v20)");
++                             "NetBox: FAIL noreply LOOPBACK DEAD: PS2 never rx NB_UITAG");
 +                }
 +            } else if (stage == 10) {
 +                /* [v21] PHY（MII）自环结果 —— 见 netbox_bd.c 的
@@ -5086,13 +5255,13 @@ index 1054228..b7d9e75 100644
 +                 * 字段含义与 stage 9 完全一致（复用 v18 位布局）。 */
 +                if (nrx > 0u && !(fl & 1u)) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply PHY LPBK: MAL frames, no IRQ nrx=%u (v21)", nrx);
++                             "NetBox: FAIL noreply PHY LPBK: MAL frames, no IRQ nrx=%u NB_UITAG", nrx);
 +                } else if (fl & 1u) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply PHY LPBK: IRQ ran, no frame nrx=%u (v21)", nrx);
++                             "NetBox: FAIL noreply PHY LPBK: IRQ ran, no frame nrx=%u NB_UITAG", nrx);
 +                } else {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply PHY LPBK DEAD -> MII/PHY fault (v21)");
++                             "NetBox: FAIL noreply PHY LPBK DEAD -> MII/PHY fault NB_UITAG");
 +                }
 +            } else if (stage == 11) {
 +                /* [v22] 对照窗口 —— 两格自环都通了才走到这里。
@@ -5172,16 +5341,16 @@ index 1054228..b7d9e75 100644
 +                     *   盒子/线缆。所以措辞与版本标记都升到 v23，避免与 v22 的同名
 +                     *   读数混淆（v22 会把 SILENT 直接判成"线/盒子坏了"。） */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX SILENT; PS2 link+TX clean -> box/cable (v23)");
++                             "NetBox: FAIL noreply RX SILENT; PS2 link+TX clean -> box/cable NB_UITAG");
 +                } else if (rp != 0u || (na == 0u && nb > 0u)) {
 +                    /* ★ 发帧之后帧数明显涨了 = 对端在回我们 ★ */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX REPLY! A=%u B=%u dst=%c%c%X%s (v22)",
++                             "NetBox: FAIL noreply RX REPLY! A=%u B=%u dst=%c%c%X%s NB_UITAG",
 +                             na, nb, kc, dc, d3, box ? " box" : "");
 +                } else {
 +                    /* 两个窗口差不多 = 对端在自己的节奏上发，没理我们。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX UNSOLICITED A=%u B=%u dst=%c%c%X%s (v22)",
++                             "NetBox: FAIL noreply RX UNSOLICITED A=%u B=%u dst=%c%c%X%s NB_UITAG",
 +                             na, nb, kc, dc, d3, box ? " box" : "");
 +                }
 +            } else if (stage == 12) {
@@ -5215,26 +5384,26 @@ index 1054228..b7d9e75 100644
 +
 +                if (phy_gone) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LINKCHK: NO PHY (idr=FFFF) (v23)");
++                             "NetBox: FAIL noreply LINKCHK: NO PHY (idr=FFFF) NB_UITAG");
 +                } else if (lp_stuck) {
 +                    /* ★ 这正是 v21/v22 监听窗口"测到的是自己的实验残留"的根因 ★ */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LINKCHK: PHY STUCK LOOPBACK link=%d (v23)", link);
++                             "NetBox: FAIL noreply LINKCHK: PHY STUCK LOOPBACK link=%d NB_UITAG", link);
 +                } else if (txq) {
 +                    /* 发完帧 TXFIFO 仍有残留 => MAC 没把帧取走上 MII，
 +                     * 正好解释"发送返回 1、线上却 0 帧"。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LINKCHK: TX STUCK txq=%d%d link=%d aneg=%d (v23)",
++                             "NetBox: FAIL noreply LINKCHK: TX STUCK txq=%d%d link=%d aneg=%d NB_UITAG",
 +                             txq10, txq11, link, aneg);
 +                } else if (!link) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LINKCHK: NO LINK aneg=%d bmsr=%X sts=%X (v23)",
++                             "NetBox: FAIL noreply LINKCHK: NO LINK aneg=%d bmsr=%X sts=%X NB_UITAG",
 +                             aneg, bmsr_lo, sts_lo);
 +                } else {
 +                    /* link 真、TX 干净、PHY 不在自环 —— stage 11 的 SILENT 是盒子
 +                     * 正常的静默监听行为，不是故障；该看的是盒子侧 / 线缆。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: OK link=%d%d %s%s%s partner=%d fcs=%d rec=%d anlpar=%X (v23)",
++                             "NetBox: OK link=%d%d %s%s%s partner=%d fcs=%d rec=%d anlpar=%X NB_UITAG",
 +                             link1, link2, spd100 ? "100M" : "10M", fdx ? "F" : "H",
 +                             flow ? "fc" : "", partner, fcscr_nz, recr_nz, anlpar_lo);
 +                }
@@ -5248,30 +5417,30 @@ index 1054228..b7d9e75 100644
 +                    /* TxMODE0 的 GNP 位挂着 = 描述符交了、发送引擎没动，
 +                     * 帧根本没上线路。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s TX ENGINE STUCK (gnp) (v18)", stageName[stage]);
++                             "NetBox: FAIL %s TX ENGINE STUCK (gnp) NB_UITAG", stageName[stage]);
 +                } else if (e18 == 5u) {
 +                    /* 出现过 DEAD_0 / TX_ERR / SQE_ERR = 引擎动了、
 +                     * 线路侧报死（PHY 侧没有载波）。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s TX DEAD CARRIER (v18)", stageName[stage]);
++                             "NetBox: FAIL %s TX DEAD CARRIER NB_UITAG", stageName[stage]);
 +                } else if (nbad > 0u || e18 != 0u) {
 +                    /* 帧到了、也取走了，但带着以太网收帧错误标志。
 +                     * errcode: 1 BD丢帧 / 2 BAD_FCS / 3 短帧 / 4 其它收帧错 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s BAD FRAMES=%u e=%u (v18)",
++                             "NetBox: FAIL %s BAD FRAMES=%u e=%u NB_UITAG",
 +                             stageName[stage], nbad, e18);
 +                } else if (nrx > 0u || (fl & 8u)) {
 +                    /* MAL 里压着帧没被取走 -> 中断那一段的问题。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s MAL STUCK nrx=%u (v18)", stageName[stage], nrx);
++                             "NetBox: FAIL %s MAL STUCK nrx=%u NB_UITAG", stageName[stage], nrx);
 +                } else if (fl & 1u) {
 +                    /* 中断在跑、一个帧都没到过 -> 帧没上线，或盒子真没回。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s rx armed, 0 frames (v18)", stageName[stage]);
++                             "NetBox: FAIL %s rx armed, 0 frames NB_UITAG", stageName[stage]);
 +                } else {
 +                    /* 连中断都没进过 —— 收包路径压根没被碰过。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL %s NO RX IRQ at all fl=%u n=%u k=%u (v18)",
++                             "NetBox: FAIL %s NO RX IRQ at all fl=%u n=%u k=%u NB_UITAG",
 +                             stageName[stage], fl, nrx, nok);
 +                }
 +            }
@@ -5279,7 +5448,7 @@ index 1054228..b7d9e75 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v23)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v24)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
