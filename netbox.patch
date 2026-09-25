@@ -684,10 +684,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..3e49f96
+index 0000000..4a5818c
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2178 @@
+@@ -0,0 +1,2184 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -947,6 +947,19 @@ index 0000000..3e49f96
 +static volatile int g_cap_n  = 0;
 +static u8           g_cap[NB_CAP_MAX][NB_CAP_BYTES];
 +static volatile int g_cap_len[NB_CAP_MAX];
++
++/* [v22] A/B 对照窗口 + 首帧身份判定的全局状态。
++ * ★ 必须放在所有用到它的函数之前（nb_diag_pack_listen 在 700 行量级、nb_listen_probe
++ *   在 1489 行），否则 C 编译器会因"先使用后声明"报 undeclared。 */
++static int          g_listen_a  = 0; /* 窗口 A（纯听）内 MAL 硬件收到的帧数 */
++static int          g_listen_b  = 0; /* 窗口 B（发帧后）内 MAL 硬件收到的帧数 */
++static int          g_listen_ca = 0; /* 窗口 A 内抓到的帧数（判定首帧来自哪个窗口） */
++static unsigned int g_f_kind = 0; /* 首帧种类 0=无 1=广播 2=厂商多播 3=其他多播 4=单播 */
++static unsigned int g_f_d3   = 0; /* 首帧 (dst[3]>>5)&3（分 ff:34:43:{52,30,00,ff}）*/
++static unsigned int g_f_u    = 0; /* 首帧源 MAC 前 3 字节 == 08:00:27（盒子）*/
++static unsigned int g_f_et   = 0; /* 首帧 EtherType == 0x0800（IPv4）*/
++static unsigned int g_f_p4   = 0; /* 首帧 UDP 目的端口 == 40000 */
++static unsigned int g_f_p3   = 0; /* 首帧 UDP 源端口  == 30000 */
 +
 +static void netbox_raw_hook(const unsigned char *frame, int len)
 +{
@@ -2117,16 +2130,9 @@ index 0000000..3e49f96
 + *   v22 f1/f2/f3   第二、三帧的同样字段（看是不是一批同形的帧）
 + *
 + * 上屏那条（32 位）装不下这么多，只装摘要，布局见 nb_diag_pack_listen()。
++ * （下面的 g_listen_a / g_listen_b / g_listen_ca / g_f_* 全局声明已统一挪到
++ *  文件顶部抓帧缓冲区之后，避免"先使用后声明"的 undeclared 报错。）
 + * ------------------------------------------------------------------ */
-+static int g_listen_a  = 0; /* 窗口 A（纯听）内 MAL 硬件收到的帧数 */
-+static int g_listen_b  = 0; /* 窗口 B（发帧后）内 MAL 硬件收到的帧数 */
-+static int g_listen_ca = 0; /* 窗口 A 内抓到的帧数（判定首帧来自哪个窗口） */
-+static unsigned int g_f_kind = 0; /* 首帧种类 0=无 1=广播 2=厂商多播 3=其他多播 4=单播 */
-+static unsigned int g_f_d3   = 0; /* 首帧 (dst[3]>>5)&3（分 ff:34:43:{52,30,00,ff}）*/
-+static unsigned int g_f_u    = 0; /* 首帧源 MAC 前 3 字节 == 08:00:27（盒子）*/
-+static unsigned int g_f_et   = 0; /* 首帧 EtherType == 0x0800（IPv4）*/
-+static unsigned int g_f_p4   = 0; /* 首帧 UDP 目的端口 == 40000 */
-+static unsigned int g_f_p3   = 0; /* 首帧 UDP 源端口  == 30000 */
 +
 +/* 从抓到的首帧里解析出身份字段。取"窗口 A 的第一帧"优先（那是纯自发的），
 + * A 没有帧才用窗口 B 的（那可能是被我们触发的）。 */
