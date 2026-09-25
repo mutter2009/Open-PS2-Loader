@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..358a569
+index 0000000..6b7147f
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,221 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,7 +101,7 @@ index 0000000..358a569
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.11 ... dst-MAC ladder + PHY loopback（看到 v1.11 才是本轮；v1.10=v21 之前那一轮，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.12 ... PHY loopback + A/B listen（看到 v1.12 才是本轮；v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,16 +120,17 @@ index 0000000..358a569
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.11 标记           : $(grep -a -c 'v1.11' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.12 标记           : $(grep -a -c 'v1.12' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
++            echo "A/B listen     : $(grep -a -c 'A/B listen' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- gui.c 侧的 v17 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
 +            echo "OPL.elf: 'NO PHY (mdio floats FFFF)' : $(grep -a -c 'NO PHY (mdio floats FFFF)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link DOWN bmsr='           : $(grep -a -c 'link DOWN bmsr=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v21)'   : $(grep -a -c 'resident (raw SMAP v21)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v22)'   : $(grep -a -c 'resident (raw SMAP v22)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
@@ -164,13 +165,11 @@ index 0000000..358a569
 +            echo "netbox ELF smap_phy_loopback_set : $(grep -a -c 'smap_phy_loopback_set' modules/netbox/netbox.notiopmod.elf 2>&1)"
 +            echo "smap ELF   smap_phy_counters     : $(grep -a -c 'smap_phy_counters'     modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
 +            echo "netbox ELF smap_phy_counters     : $(grep -a -c 'smap_phy_counters'     modules/netbox/netbox.notiopmod.elf 2>&1)"
-+            echo "--- gui.c 侧五条 v21 短语，一条都不能少（各对应一种修法方向）---"
++            echo "--- gui.c 侧三条 v21 短语（stage 10 = PHY/MII 自环），一条都不能少 ---"
 +            echo "OPL.elf: 'PHY LPBK DEAD -> MII/PHY fault'    : $(grep -a -c 'PHY LPBK DEAD -> MII/PHY fault' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY LPBK: MAL frames, no IRQ nrx=' : $(grep -a -c 'PHY LPBK: MAL frames, no IRQ nrx=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY LPBK: IRQ ran, no frame nrx='  : $(grep -a -c 'PHY LPBK: IRQ ran, no frame nrx=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'RX HEARS BOX -> frame mismatch'    : $(grep -a -c 'RX HEARS BOX -> frame mismatch' opl.elf 2>&1)"
-+            echo "OPL.elf: 'RX SILENT 0 frames -> line/box'    : $(grep -a -c 'RX SILENT 0 frames -> line/box' opl.elf 2>&1)"
-+            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 10/11 分支没编进去）"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 10 分支没编进去）"
 +            echo "--- ★ v21 关键：stage 范围保护必须 ≥ 11 ★---"
 +            echo "  （v19 就是死在这一格：当时加了 NB_STAGE_LOOPBACK=9，保护却还写着"
 +            echo "    stage > 8，于是 stage 9 被夹成 0、分支被 -O2 当死代码整块删掉，"
@@ -178,11 +177,28 @@ index 0000000..358a569
 +            echo "gui.c: 'stage > 11'                   : $(grep -a -c 'stage > 11' src/gui.c 2>&1)"
 +            echo "gui.c: 'phylpbk'                      : $(grep -a -c 'phylpbk' src/gui.c 2>&1)"
 +            echo "gui.c: 'listen'                       : $(grep -a -c 'listen' src/gui.c 2>&1)"
-+            echo "--- netbox.irx 侧 v21 自检/监听诊断串 ---"
++            echo "--- netbox.irx 侧 v21/v22 诊断串 ---"
 +            echo "netbox.irx: 'v21 phy-loopback:'      : $(grep -a -c 'v21 phy-loopback:' modules/netbox/netbox.irx 2>&1)"
-+            echo "netbox.irx: 'v21 listen '            : $(grep -a -c 'v21 listen ' modules/netbox/netbox.irx 2>&1)"
-+            echo "netbox.irx: 'v21 phy: bmcr='         : $(grep -a -c 'v21 phy: bmcr=' modules/netbox/netbox.irx 2>&1)"
-+            echo "netbox.irx: 'v21 cap0 n='            : $(grep -a -c 'v21 cap0 n=' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'v22 AB listen'          : $(grep -a -c 'v22 AB listen' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'v22 phy: bmcr='         : $(grep -a -c 'v22 phy: bmcr=' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'v22 f%d len=%d dst='    : $(grep -a -c 'v22 f%d len=%d dst=' modules/netbox/netbox.irx 2>&1)"
++            echo
++            echo "=== [v22 关键证据] A/B 对照窗口（stage 11）—— 这一格整套位布局换过 ==="
++            echo "--- 驱动侧新函数必须真的编进去（查未 strip 的 ELF）---"
++            echo "netbox ELF nb_diag_pack_listen     : $(grep -a -c 'nb_diag_pack_listen' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "netbox ELF nb_listen_probe         : $(grep -a -c 'nb_listen_probe' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "netbox ELF nb_identify_first_frame : $(grep -a -c 'nb_identify_first_frame' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- ★ v22 关键：rp 必须在 bit25，绝不能落在 bit30 ★ ---"
++            echo "  （bit30 是打包标记 NB_V17_MARK = 0x40000000 占的位。v22 第一版把"
++            echo "    rp 放在 bit30，结果 rp 恒为 1、屏幕会永远显示「对端在回我们」。已修。）"
++            echo "netbox_bd.c: 'rp << 25'              : $(grep -a -c 'rp << 25' modules/netbox/netbox_bd.c 2>&1)"
++            echo "gui.c: 'unsigned int rp'             : $(grep -a -c 'unsigned int rp' src/gui.c 2>&1)"
++            echo "gui.c: 'v >> 25'                     : $(grep -a -c 'v >> 25' src/gui.c 2>&1)"
++            echo "--- gui.c 侧三条 v22 短语，一条都不能少（各对应一种修法方向）---"
++            echo "OPL.elf: 'RX REPLY!'                 : $(grep -a -c 'RX REPLY!' opl.elf 2>&1)"
++            echo "OPL.elf: 'RX UNSOLICITED'            : $(grep -a -c 'RX UNSOLICITED' opl.elf 2>&1)"
++            echo "OPL.elf: 'RX SILENT 0 frames -> line/box (v22)' : $(grep -a -c 'RX SILENT 0 frames -> line/box (v22)' opl.elf 2>&1)"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 11 分支没编进去）"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
@@ -668,10 +684,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..445e3cf
+index 0000000..3e49f96
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2018 @@
+@@ -0,0 +1,2178 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -922,7 +938,10 @@ index 0000000..445e3cf
 + * 只做递增和一个短 memcpy）。
 + */
 +#define NB_CAP_MAX   4
-+#define NB_CAP_BYTES 32
++/* [v22] 32 -> 48：UDP 头的源/目的端口在以太网头 14 + IP 头 20 之后的
++ * 第 34..37 字节，32 字节的旧上限刚好差一点够不到 —— 而"目的端口是不是
++ * 40000"正是判断"这帧是不是我们这套协议"最直接的证据。 */
++#define NB_CAP_BYTES 48
 +
 +static volatile int g_cap_on = 0;
 +static volatile int g_cap_n  = 0;
@@ -1411,6 +1430,63 @@ index 0000000..445e3cf
 +    return (int)v;
 +}
 +
++/* ------------------------------------------------------------------
++ * [v22] stage 11（对照窗口）专用的打包 —— 32 位里装"对端到底在不在回我们"。
++ *
++ * ★ 为什么另起一个打包函数而不是塞进 pack18 ★
++ *   pack18 装的是 v18 语义的收发计数器，而 stage 11 这一步要回答的问题
++ *   完全换了一个（不再问"PS2 收到没有"，而是问"对端有没有反应"）。
++ *   位布局按 stage 分流是这个通道一贯的做法（见 pack18 上面的说明），
++ *   所以这里整块重定义，而不是去挤 pack18 的字段。
++ *
++ * 位布局（与 src/gui.c 里 stage == 11 分支的注释【必须逐字一致】）：
++ *   bit0..7    nA      窗口 A（纯听）内 MAL 硬件收到的帧数（截到 255）
++ *   bit8..15   nB      窗口 B（发帧后）内 MAL 硬件收到的帧数（截到 255）
++ *   bit16..18  kind    首帧种类 0=无帧 1=广播 2=厂商多播(ff:34:43)
++ *                              3=其他多播 4=单播★（单播必然写着我们）
++ *   bit19..20  d3      首帧 (dst[3] >> 5) & 3（0x52->2 0x30->1 0x00->0 0xFF->3）
++ *   bit21      ip      首帧 EtherType == 0x0800（是个 IPv4 帧）
++ *   bit22      p4      首帧 UDP 目的端口 == 40000（我们协议的服务器端口）
++ *   bit23      box     首帧源 MAC 前 3 字节 == 08:00:27（盒子）
++ *   bit24      p3      首帧 UDP 源端口  == 30000（我们协议的客户端端口）
++ *   bit25      rp      ★ nB > nA + 1：发帧之后明显多出帧来 => 对端在回我们 ★
++ *   bit26..29  stage   （与 v17/v18 布局共用这个位置）
++ *   bit30      —       ★ 不能动：NB_V17_MARK = 0x40000000 就是这一位，
++ *                        是 gui.c 判"这是不是一个打包值"的标记位。
++ *                        （v22 第一版把 rp 放在这里，结果 rp 恒为 1，
++ *                          屏幕会永远显示"对端在回我们" —— 已挪到 bit25。）
++ *   bit31      0       （必须为 0：返回值是 int，置了符号位上面全乱）
++ *
++ * bit0..25 只有 26 位，而"种类 + 变体 + 三个协议判据 + 结论"一共要 9 位 ——
++ * 所以 d3 只留 2 位（够分开厂商实测的三个值）、EtherType 只留"是不是 IPv4"
++ * 一位。更细的（完整 dst/src MAC、真实端口号）走诊断通道的 v22 f0/f1/f2。
++ *
++ * 阈值取 nA+1 而不是 nA：单帧的抖动不算数，至少多两帧才认定"被触发"。
++ * ------------------------------------------------------------------ */
++static int nb_diag_pack_listen(int stage)
++{
++    unsigned int v = (unsigned int)NB_V17_MARK;
++    unsigned int na, nb, rp;
++
++    na = (g_listen_a > 255) ? 255u : (unsigned int)g_listen_a;
++    nb = (g_listen_b > 255) ? 255u : (unsigned int)g_listen_b;
++
++    rp = ((unsigned int)g_listen_b > (unsigned int)g_listen_a + 1u) ? 1u : 0u;
++
++    v |= (na << 0)
++       | (nb << 8)
++       | ((g_f_kind & 0x07u) << 16)
++       | ((g_f_d3   & 0x03u) << 19)
++       | ((g_f_et   & 0x01u) << 21)
++       | ((g_f_p4   & 0x01u) << 22)
++       | ((g_f_u    & 0x01u) << 23)
++       | ((g_f_p3   & 0x01u) << 24)
++       | (rp << 25)
++       | ((((unsigned int)stage) & 0x0Fu) << 26);
++
++    return (int)v;
++}
++
 +/*
 + * [v16→v17] PHY 身份分类 —— 只分类，不再判失败。
 + *
@@ -1606,6 +1682,11 @@ index 0000000..445e3cf
 +     * 两边共用同一组位，靠 stage 区分，不需要额外的标记位。 */
 +    if (stage == NB_STAGE_LINK)
 +        return nb_diag_pack(stage, g_phy_code, bmsr, sts, lm);
++
++    /* [v22] stage 11 装的不再是 v18 计数器，而是"对端有没有在回我们"
++     * 那一组（A/B 计数 + 首帧身份），位布局见 nb_diag_pack_listen()。 */
++    if (stage == NB_STAGE_LISTEN)
++        return nb_diag_pack_listen(stage);
 +
 +    return nb_diag_pack18(stage);
 +}
@@ -2009,84 +2090,179 @@ index 0000000..445e3cf
 +}
 +
 +/* ------------------------------------------------------------------
-+ * [v21] 纯监听窗口 —— "线上到底有没有东西"
++ * [v22] 对照窗口 —— "盒子到底有没有在回我们"
 + *
-+ * 走到这里的条件是：内自环 OK + PHY 自环 OK，也就是 PS2 侧从我们造帧到钩子
-+ * 收到帧、含 PHY 的 MII 段，全部完好。剩下的可能只有两种，而它们需要的动作
-+ * 完全不同：
-+ *     (a) 盒子的帧到不了 PS2  —— 网线 / 对端 PHY / 盒子没工作
-+ *     (b) 盒子的帧能到，但它不认我们发的东西 —— 帧格式或时序
-+ * 这两种在屏幕上、在自环里都长得一样，只有"听"能分开。
++ * v21 的实机结果是 stage 11 打出 RX HEARS BOX：线上一帧都没有已被排除，
++ * PS2 收到过帧。但这句话还留着最后一个歧义，而它决定了完全不同的下一步：
++ *     (a) 那些帧是【盒子在回我们】-> 病只剩"我们不认识它"，纯格式/识别问题
++ *     (b) 那些帧是【盒子自顾自发】-> 我们发的请求根本没被接受
++ * 两种情形下"听 400ms 有帧"长得一模一样，光看计数分不开。
++ *
++ * ★ v22 的做法：同一台机器上做 A/B 对照 ★
++ *   窗口 A：纯听 ms 毫秒，什么都不发           -> A 帧
++ *   窗口 B：对四个目的 MAC 候选各发一帧，再听 ms 毫秒 -> B 帧
++ *   B 明显多于 A（> A+1）=> 我们发帧这个动作【触发了】对端 => 情形 (a)。
++ * 这是唯一能对抗"盒子本来就有周期性流量"这个混淆因素的设计：
++ * 周期性流量在 A 和 B 里都会出现，一减就消掉了。
 + *
 + * ★ 这个窗口不需要改任何接收配置 ★
 + *   RxMODE 在 smap_init() 第 668 行就已经是含 RX_BCAST / RX_MCAST 的那一组，
 + *   而盒子的应答按桥接抓包是【广播帧】，本来就过得了地址过滤。所以"听不到"
 + *   是真的没东西进来，不是被硬件滤掉了 —— 这一点是判据成立的前提。
 + *
-+ * 除了计数，还把两样东西打上诊断通道（PC 侧抓包直接可见）：
-+ *   v21 phy: ...   PHY 的 BMCR/BMSR/PHYSTS/FCSCR/RECR/PCSR —— 其中 FCSCR/RECR
++ * 除了计数，还把首帧的身份打上诊断通道（PC 侧抓包直接可见）：
++ *   v22 phy: ...   PHY 的 BMCR/BMSR/PHYSTS/FCSCR/RECR/PCSR —— 其中 FCSCR/RECR
 + *                  非 0 就说明线上真有信号进来并被 PHY 接收侧处理过。
-+ *   v21 cap0 ...   窗口内第一帧的头 24 字节（十六进制）—— 对端长什么样的直接证据。
++ *   v22 f0 ...     首帧的 dst/src MAC + EtherType（先 A 窗口的，A 空才取 B 的）
++ *   v22 f1/f2/f3   第二、三帧的同样字段（看是不是一批同形的帧）
++ *
++ * 上屏那条（32 位）装不下这么多，只装摘要，布局见 nb_diag_pack_listen()。
 + * ------------------------------------------------------------------ */
-+static int g_listen_rx = 0; /* 监听窗口内交到收帧钩子的帧数 */
++static int g_listen_a  = 0; /* 窗口 A（纯听）内 MAL 硬件收到的帧数 */
++static int g_listen_b  = 0; /* 窗口 B（发帧后）内 MAL 硬件收到的帧数 */
++static int g_listen_ca = 0; /* 窗口 A 内抓到的帧数（判定首帧来自哪个窗口） */
++static unsigned int g_f_kind = 0; /* 首帧种类 0=无 1=广播 2=厂商多播 3=其他多播 4=单播 */
++static unsigned int g_f_d3   = 0; /* 首帧 (dst[3]>>5)&3（分 ff:34:43:{52,30,00,ff}）*/
++static unsigned int g_f_u    = 0; /* 首帧源 MAC 前 3 字节 == 08:00:27（盒子）*/
++static unsigned int g_f_et   = 0; /* 首帧 EtherType == 0x0800（IPv4）*/
++static unsigned int g_f_p4   = 0; /* 首帧 UDP 目的端口 == 40000 */
++static unsigned int g_f_p3   = 0; /* 首帧 UDP 源端口  == 30000 */
++
++/* 从抓到的首帧里解析出身份字段。取"窗口 A 的第一帧"优先（那是纯自发的），
++ * A 没有帧才用窗口 B 的（那可能是被我们触发的）。 */
++static void nb_identify_first_frame(void)
++{
++    const u8 *f;
++    int len;
++
++    g_f_kind = g_f_d3 = g_f_u = g_f_et = g_f_p4 = g_f_p3 = 0;
++
++    if (g_cap_n <= 0)
++        return;
++
++    f   = g_cap[0];
++    len = g_cap_len[0];
++
++    if (f[0] == 0xFFu && f[1] == 0xFFu)
++        g_f_kind = 1u;                                  /* 广播 */
++    else if (f[0] == 0xFFu && f[1] == 0x34u && f[2] == 0x43u)
++        g_f_kind = 2u;                                  /* 厂商多播 ff:34:43 */
++    else if ((f[0] & 1u) != 0u)
++        g_f_kind = 3u;                                  /* 其他多播 */
++    else
++        g_f_kind = 4u;                                  /* 单播 —— 一定写着我们 */
++
++    g_f_d3 = (f[3] >> 5) & 0x03u;
++
++    if (f[6] == 0x08u && f[7] == 0x00u && f[8] == 0x27u)
++        g_f_u = 1u;                                     /* 源 = 盒子 MAC 前缀 */
++
++    if (len >= 14) {
++        unsigned int et = ((unsigned int)f[12] << 8) | f[13];
++
++        if (et == 0x0800u)
++            g_f_et = 1u;                                /* 是个 IPv4 帧 */
++        /* 只有 IPv4/UDP 才去解端口；别把非 IP 帧的字节当端口读。 */
++        if (et == 0x0800u && len >= 38) {
++            /* 以太网头 14 + IP 头 20（无选项）= 34，UDP 源端口在 +0/+1。 */
++            unsigned int sp = ((unsigned int)f[34] << 8) | f[35];
++            unsigned int dp = ((unsigned int)f[36] << 8) | f[37];
++
++            if (dp == 40000u)
++                g_f_p4 = 1u;                            /* 我们协议的服务器端口 */
++            if (sp == 30000u)
++                g_f_p3 = 1u;                            /* 我们协议的客户端端口 */
++        }
++    }
++}
 +
 +static void nb_listen_probe(int ms)
 +{
 +    static unsigned int base[20];
-+    static const int cum[] = {3, 4, 5, 6, 7, 8, 9, 10, 11};
-+    int i, k;
++    static u8 req[512];
++    int i, k, len, saved_idx;
 +
-+    g_listen_rx = 0;
++    g_listen_a = g_listen_b = g_listen_ca = 0;
++    g_cap_n    = 0;
 +
 +    /* 先确认两个自环都关着 —— 否则听到的全是自己绕回来的帧，毫无意义。 */
 +    smap_loopback_set(0);
 +
++    /* 排空上一格（PHY 自环）可能还在路上的回环帧，再建基线。 */
++    DelayThread(300 * 1000);
++
++    /* ---------------- 窗口 A：纯听，什么都不发 ---------------- */
 +    nb_snapshot();
 +    for (i = 0; i < 20; i++)
 +        base[i] = g_rxd[i];
 +
-+    g_cap_n  = 0;
 +    g_cap_on = 1;
 +
 +    DelayThread((u32)ms * 1000);
 +
 +    nb_snapshot();
-+    for (k = 0; k < (int)(sizeof(cum) / sizeof(cum[0])); k++) {
-+        int j = cum[k];
++    for (k = 0; k < 20; k++)
++        g_rxd[k] = (g_rxd[k] >= base[k]) ? (g_rxd[k] - base[k]) : 0;
 +
-+        g_rxd[j] = (g_rxd[j] >= base[j]) ? (g_rxd[j] - base[j]) : 0;
++    g_listen_a  = (int)g_rxd[0];   /* MAL 硬件收帧计数 —— 不依赖中断那个 */
++    g_listen_ca = g_cap_n;
++
++    /* ------------- 窗口 B：四个目的 MAC 候选各发一帧，再听同样长 ------------- */
++    saved_idx = nb_dstmac_idx;
++
++    nb_snapshot();
++    for (i = 0; i < 20; i++)
++        base[i] = g_rxd[i];
++
++    g_txn = (u16)(g_txn + 1);
++    len   = nb_build_generic(req, (int)sizeof(req), NB_HS1,
++                             (int)(sizeof(NB_HS1) / sizeof(NB_HS1[0])), g_txn);
++    for (i = 0; i < 4 && len > 0; i++) {
++        nb_dstmac_idx = i;         /* 四个候选都打一遍，最大化"被接受"的概率 */
++        nb_send(req, len);
++        DelayThread(5 * 1000);
 +    }
++
++    nb_dstmac_idx = saved_idx;
++
++    DelayThread((u32)ms * 1000);
++
++    nb_snapshot();
++    for (k = 0; k < 20; k++)
++        g_rxd[k] = (g_rxd[k] >= base[k]) ? (g_rxd[k] - base[k]) : 0;
++
++    g_listen_b = (int)g_rxd[0];
 +
 +    g_cap_on = 0;
 +
-+    g_listen_rx = (int)g_rxd[9];
-+    if (g_listen_rx == 0 && g_rxd[0] > 0)
-+        g_listen_rx = (int)g_rxd[0];
++    nb_identify_first_frame();
 +
 +    {
-+        char msg[160];
++        char msg[192];
 +        unsigned int pc[8];
 +
-+        sprintf(msg, "v21 listen %dms: mal=%u intr=%u rxend=%u ok=%u bad=%u got=%d",
-+                ms, g_rxd[0], g_rxd[4], g_rxd[5], g_rxd[9], g_rxd[10], g_listen_rx);
++        sprintf(msg, "v22 AB listen %dms: A=%d B=%d capA=%d ok=%u bad=%u intr=%u",
++                ms, g_listen_a, g_listen_b, g_listen_ca, g_rxd[9], g_rxd[10], g_rxd[4]);
 +        nb_diag(msg);
 +
 +        if (smap_phy_counters(pc, 8) == 0) {
-+            sprintf(msg, "v21 phy: bmcr=%04x bmsr=%04x sts=%04x fcscr=%04x recr=%04x pcsr=%04x",
++            sprintf(msg, "v22 phy: bmcr=%04x bmsr=%04x sts=%04x fcscr=%04x recr=%04x pcsr=%04x",
 +                    pc[0] & 0xFFFFu, pc[1] & 0xFFFFu, pc[2] & 0xFFFFu,
 +                    pc[3] & 0xFFFFu, pc[4] & 0xFFFFu, pc[5] & 0xFFFFu);
 +            nb_diag(msg);
 +        }
 +
-+        if (g_cap_n > 0) {
-+            int n = g_cap_len[0];
-+            int p = 0;
++        for (i = 0; i < g_cap_n && i < NB_CAP_MAX; i++) {
++            const u8 *f = g_cap[i];
++            int n = g_cap_len[i];
 +
-+            if (n > 24)
-+                n = 24;
-+            p += sprintf(msg + p, "v21 cap0 n=%d len=%d ", g_cap_n, g_cap_len[0]);
-+            for (i = 0; i < n && p < 130; i++)
-+                p += sprintf(msg + p, "%02x", g_cap[0][i]);
++            if (n < 14)
++                continue;
++            sprintf(msg, "v22 f%d len=%d dst=%02x:%02x:%02x:%02x:%02x:%02x src=%02x:%02x:%02x:%02x:%02x:%02x et=%02x%02x",
++                    i, n,
++                    f[0], f[1], f[2], f[3], f[4], f[5],
++                    f[6], f[7], f[8], f[9], f[10], f[11],
++                    f[12], f[13]);
 +            nb_diag(msg);
 +        }
 +    }
@@ -2389,7 +2565,7 @@ index 0000000..445e3cf
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.11 (raw SMAP + dst-MAC ladder + PHY loopback + listen probe)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.12 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -4487,10 +4663,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..9aa0e40 100644
+index 1054228..a5b53d7 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,353 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,407 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -4550,7 +4726,7 @@ index 1054228..9aa0e40 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v21)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v22)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
@@ -4559,9 +4735,9 @@ index 1054228..9aa0e40 100644
 +        /* 与驱动 NB_STAGE_* 一一对应；下标 1..11 有效。
 +         *   9 loopback = v19 新增：报的是【EMAC3 内部自环】的读数。
 +         *  10 phylpbk  = v21 新增：报的是【PHY/MII 自环】的读数。
-+         *  11 listen   = v21 新增：报的是【纯听窗口】里盒子的读数。
++         *  11 listen   = v22 起改成【A/B 对照窗口】：报的是"对端在不在回我们"。
 +         * 9/10 的读数都不是盒子的 —— 走到那里的前提就是盒子一个回包都没有；
-+         * 只有 11 才是"盒子的帧到底来没来"。 */
++         * 只有 11 才是"盒子的帧到底来没来、是不是回我们的"。 */
 +        static const char *stageName[] = {
 +            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig",
 +            "loopback", "phylpbk", "listen"
@@ -4744,27 +4920,81 @@ index 1054228..9aa0e40 100644
 +                             "NetBox: FAIL noreply PHY LPBK DEAD -> MII/PHY fault (v21)");
 +                }
 +            } else if (stage == 11) {
-+                /* [v21] 纯监听窗口 —— 两格自环都通了才走到这里。
++                /* [v22] 对照窗口 —— 两格自环都通了才走到这里。
 +                 *
-+                 * 此时 PS2 侧从"我们造帧"到"钩子收到帧"、含 PHY 的 MII 段，
-+                 * 已经全部验证完毕。剩下的只可能是：
-+                 *   (a) 盒子的帧到不了 PS2  —— 网线 / 对端 PHY / 盒子没工作
-+                 *   (b) 盒子的帧能到，但它不认我们发的东西 —— 帧格式或时序
-+                 * 驱动把两个自环都关掉，纯听 400ms，什么都不伪装。
-+                 * ★ 这一格报的是【盒子的】读数 —— 整个 v14~v21 里第一次。★
++                 * v21 已经排除"线上一帧都没有"（那一次打出的是 RX HEARS BOX）。
++                 * 但那只说明"收到过帧"，还留着最后一个、也是决定下一步怎么走的
++                 * 歧义：
++                 *   (a) 那些帧是【盒子在回我们】-> 病只剩"我们不认识它"，纯识别问题
++                 *   (b) 那些帧是【盒子自顾自发】-> 我们发的请求根本没被接受
++                 * v22 用同一台机器上的 A/B 对照把它劈开：
++                 *   窗口 A = 纯听 ms 毫秒，什么都不发            -> A 帧
++                 *   窗口 B = 四个目的 MAC 候选各发一帧，再听 ms 毫秒 -> B 帧
++                 * B 明显多于 A => 我们发帧这个动作【触发了】对端 => (a)。
++                 * 周期性流量在 A、B 里都会出现，一减就消掉 —— 这正是 A/B 的意义。
 +                 *
-+                 * RxMODE 早已含 RX_BCAST/RX_MCAST，而盒子的应答按桥接抓包是
-+                 * 广播帧，所以"听不到"是真的没东西，不是被硬件滤掉了。
-+                 *
-+                 * 诊断通道上还会多打两行：v21 phy:（BMCR/BMSR/PHYSTS/FCSCR/
-+                 * RECR/PCSR，其中 FCSCR/RECR 非 0 就说明线上真有信号进来过）
-+                 * 和 v21 cap0（窗口内第一帧的头 24 字节十六进制）。 */
-+                if (nrx > 0u || nok > 0u) {
++                 * 位布局与 netbox_bd.c 的 nb_diag_pack_listen() 注释【逐字一致】：
++                 *   bit0..7 nA / bit8..15 nB / bit16..18 kind / bit19..20 d3
++                 *   bit21 ip / bit22 p4 / bit23 box / bit24 p3 / bit25 rp
++                 *   bit26..29 stage / bit30 打包标记（0x40000000）/ bit31 恒 0
++                 * ★ 这一格里 nrx/nok/nbad/e18/fl 那些 v18 字段【没有意义】，
++                 *   它们的位置被上面这组字段占用了（布局按 stage 分流）。 */
++                unsigned int na   = v & 0xFFu;
++                unsigned int nb   = (v >> 8) & 0xFFu;
++                unsigned int kind = (v >> 16) & 0x07u;
++                unsigned int d3   = (v >> 19) & 0x03u;
++                unsigned int ip   = (v >> 21) & 0x01u;
++                unsigned int p4   = (v >> 22) & 0x01u;
++                unsigned int box  = (v >> 23) & 0x01u;
++                unsigned int p3   = (v >> 24) & 0x01u;
++                unsigned int rp   = (v >> 25) & 0x01u;
++                char kc, dc;
++
++                /* 首帧种类：U = 单播 —— 单播帧的目的地址必然写着我们，
++                 * 出现 U 几乎就等于"对端在跟我们说话"。 */
++                kc = '?';
++                if (kind == 1u)
++                    kc = 'B';               /* 广播 ff:ff:ff:ff:ff:ff */
++                else if (kind == 2u)
++                    kc = 'V';               /* 厂商多播 ff:34:43:xx:ff:ff */
++                else if (kind == 3u)
++                    kc = 'm';               /* 其他多播 */
++                else if (kind == 4u)
++                    kc = 'U';               /* 单播 ★ */
++
++                /* 这帧像不像我们这套协议。两个端口都查：
++                 *   P = 目的 40000 且源 30000（全套我方协议端口）
++                 *   s = 目的 40000，源端口不是 30000
++                 *   e = 源端口 30000 —— 像我们自己发出去的帧被回显回来
++                 *   i = 只是个 IPv4 帧，端口都不对
++                 *   x = 非 IP（ARP 之类） */
++                dc = '-';
++                if (ip != 0u) {
++                    if (p4 != 0u && p3 != 0u)
++                        dc = 'P';
++                    else if (p4 != 0u)
++                        dc = 's';
++                    else if (p3 != 0u)
++                        dc = 'e';
++                    else
++                        dc = 'i';
++                } else if (kind != 0u)
++                    dc = 'x';
++
++                if (na == 0u && nb == 0u) {
++                    /* 两个窗口都是空的 —— 线上真的什么都没有。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX HEARS BOX -> frame mismatch (v21)");
++                             "NetBox: FAIL noreply RX SILENT 0 frames -> line/box (v22)");
++                } else if (rp != 0u || (na == 0u && nb > 0u)) {
++                    /* ★ 发帧之后帧数明显涨了 = 对端在回我们 ★ */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply RX REPLY! A=%u B=%u dst=%c%c%X%s (v22)",
++                             na, nb, kc, dc, d3, box ? " box" : "");
 +                } else {
++                    /* 两个窗口差不多 = 对端在自己的节奏上发，没理我们。 */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX SILENT 0 frames -> line/box (v21)");
++                             "NetBox: FAIL noreply RX UNSOLICITED A=%u B=%u dst=%c%c%X%s (v22)",
++                             na, nb, kc, dc, d3, box ? " box" : "");
 +                }
 +            } else {
 +                /* [v18] 链路已经确认是通的（否则会停在 stage 2），
@@ -4807,7 +5037,7 @@ index 1054228..9aa0e40 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v21)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v22)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
