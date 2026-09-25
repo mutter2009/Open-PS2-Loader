@@ -1,5 +1,5 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
-index 8055448..98609e3 100644
+index 8055448..5d21d34 100644
 --- a/.github/workflows/opl-netbox.yml
 +++ b/.github/workflows/opl-netbox.yml
 @@ -62,6 +62,159 @@ jobs:
@@ -132,10 +132,9 @@ index 8055448..98609e3 100644
 +            echo "netbox_bd.c: 'rp << 25'              : $(grep -a -c 'rp << 25' modules/netbox/netbox_bd.c 2>&1)"
 +            echo "gui.c: 'unsigned int rp'             : $(grep -a -c 'unsigned int rp' src/gui.c 2>&1)"
 +            echo "gui.c: 'v >> 25'                     : $(grep -a -c 'v >> 25' src/gui.c 2>&1)"
-+            echo "--- gui.c 侧三条 v22 短语，一条都不能少（各对应一种修法方向）---"
++            echo "--- gui.c 侧两条 v22 短语（SILENT 那条在 v23 已改措辞，见下节）---"
 +            echo "OPL.elf: 'RX REPLY!'                 : $(grep -a -c 'RX REPLY!' opl.elf 2>&1)"
 +            echo "OPL.elf: 'RX UNSOLICITED'            : $(grep -a -c 'RX UNSOLICITED' opl.elf 2>&1)"
-+            echo "OPL.elf: 'RX SILENT 0 frames -> line/box (v22)' : $(grep -a -c 'RX SILENT 0 frames -> line/box (v22)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 11 分支没编进去）"
 +            echo
 +            echo "=== [v23 关键证据] 链路 + TX 体检（stage 12 / linkchk）—— 这一格整套位布局换过 ==="
@@ -154,6 +153,7 @@ index 8055448..98609e3 100644
 +            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'resident (raw SMAP v23)'      : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
++            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
 +            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
@@ -4835,10 +4835,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..c3dff02 100644
+index 1054228..b7d9e75 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,464 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,477 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -5097,6 +5097,13 @@ index 1054228..c3dff02 100644
 +            } else if (stage == 11) {
 +                /* [v22] 对照窗口 —— 两格自环都通了才走到这里。
 +                 *
++                 * ★ [v23] 语义微调：现在只有"两窗口都 0 帧（SILENT）"且
++                 *   stage 12 linkchk 判定【我们这一侧干净】时，驱动才会返回
++                 *   stage 11（见 netbox_bd.c 阶梯）。所以这一格的 SILENT 读数
++                 *   不再等于"线坏了"，而是"PS2 侧链路+TX 全好、盒子没回"。
++                 *   REPLY!/UNSOLICITED 两条分支在 v23 的阶梯里已不再被走到，
++                 *   字符串保留只为兼容旧布局。
++                 *
 +                 * v21 已经排除"线上一帧都没有"（那一次打出的是 RX HEARS BOX）。
 +                 * 但那只说明"收到过帧"，还留着最后一个、也是决定下一步怎么走的
 +                 * 歧义：
@@ -5157,9 +5164,15 @@ index 1054228..c3dff02 100644
 +                    dc = 'x';
 +
 +                if (na == 0u && nb == 0u) {
-+                    /* 两个窗口都是空的 —— 线上真的什么都没有。 */
++                    /* 两个窗口都是空的 —— 线上真的什么都没有。
++                     *
++                     * ★ [v23] 这一格现在只在【stage 12 linkchk 已证明"我们这一侧
++                     *   链路 + TX 全干净"之后】才会被打印（见 netbox_bd.c 的阶梯）：
++                     *   盒子是静默监听型，SILENT 本身不是故障；真正剩下的疑点只有
++                     *   盒子/线缆。所以措辞与版本标记都升到 v23，避免与 v22 的同名
++                     *   读数混淆（v22 会把 SILENT 直接判成"线/盒子坏了"。） */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply RX SILENT 0 frames -> line/box (v22)");
++                             "NetBox: FAIL noreply RX SILENT; PS2 link+TX clean -> box/cable (v23)");
 +                } else if (rp != 0u || (na == 0u && nb > 0u)) {
 +                    /* ★ 发帧之后帧数明显涨了 = 对端在回我们 ★ */
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
