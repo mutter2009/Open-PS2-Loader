@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
 new file mode 100644
-index 0000000..725d0a3
+index 0000000..f8a89cc
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,183 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,7 +101,7 @@ index 0000000..725d0a3
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.9 ... dst-MAC ladder + loopback selftest（看到 v1.9 才是本轮；v1.8=上一轮）---"
++            echo "--- 版本串必须是 v1.10 ... dst-MAC ladder + loopback selftest（看到 v1.10 才是本轮；v1.9=v19 空转那一轮，v1.8=更早）---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,7 +120,7 @@ index 0000000..725d0a3
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.9 标记           : $(grep -a -c 'v1.9' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.10 标记           : $(grep -a -c 'v1.10' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "loopback selftest   : $(grep -a -c 'loopback selftest' modules/netbox/netbox.irx 2>&1)"
 +            echo "--- gui.c 侧的 v17 打包解码（EE 侧，编进 OPL.ELF 而不是 irx）---"
@@ -129,7 +129,7 @@ index 0000000..725d0a3
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v19)'   : $(grep -a -c 'resident (raw SMAP v19)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v20)'   : $(grep -a -c 'resident (raw SMAP v20)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
@@ -153,8 +153,12 @@ index 0000000..725d0a3
 +            echo "OPL.elf: 'LOOPBACK: IRQ ran, no frame nrx='  : $(grep -a -c 'LOOPBACK: IRQ ran, no frame nrx=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LOOPBACK DEAD: PS2 never rx'       : $(grep -a -c 'LOOPBACK DEAD: PS2 never rx' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 9 分支没编进去）"
-+            echo "--- netbox.irx 侧 v19 自环诊断串 + 目的 MAC 阶梯 ---"
-+            echo "netbox.irx: 'v19 loopback:'          : $(grep -a -c 'v19 loopback:' modules/netbox/netbox.irx 2>&1)"
++            echo "--- ★ v20 关键：stage 范围保护必须 ≥ 9（v19 就是死在这一格）---"
++            echo "gui.c: 'stage > 9'                   : $(grep -a -c 'stage > 9' src/gui.c 2>&1)"
++            echo "  （必须是 1。为 0 说明越界保护还写着 stage > 8 —— 那 stage 9 会被夹成 0，"
++            echo "    上面四条 LOOPBACK 短语就会被编译器当死代码删掉，屏幕表现与 v18 完全一样）"
++            echo "--- netbox.irx 侧 v20 自环诊断串 + 目的 MAC 阶梯 ---"
++            echo "netbox.irx: 'v20 loopback:'          : $(grep -a -c 'v20 loopback:' modules/netbox/netbox.irx 2>&1)"
 +            echo "netbox.irx: 'dstmac_xx='             : $(grep -a -c 'dstmac_xx=' modules/netbox/netbox.irx 2>&1)"
 +            echo "netbox.irx: 'loopback selftest'      : $(grep -a -c 'loopback selftest' modules/netbox/netbox.irx 2>&1)"
 +            echo
@@ -640,7 +644,7 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..6bedbc9
+index 0000000..6c947ec
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
 @@ -0,0 +1,1773 @@
@@ -1838,7 +1842,7 @@ index 0000000..6bedbc9
 +    {
 +        char msg[160];
 +
-+        sprintf(msg, "v19 loopback: mal=%u intr=%u rxend=%u rxintr=%u wait=%u ok=%u bad=%u",
++        sprintf(msg, "v20 loopback: mal=%u intr=%u rxend=%u rxintr=%u wait=%u ok=%u bad=%u",
 +                g_rxd[0], g_rxd[4], g_rxd[5], g_rxd[7], g_rxd[8], g_rxd[9], g_rxd[10]);
 +        nb_diag(msg);
 +    }
@@ -2141,7 +2145,7 @@ index 0000000..6bedbc9
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.9 (raw SMAP + dst-MAC ladder + loopback selftest)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.10 (raw SMAP + dst-MAC ladder + loopback selftest + stage-range fix)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -4035,10 +4039,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..0e61d00 100644
+index 1054228..a6ecb21 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,292 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,301 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -4098,7 +4102,7 @@ index 1054228..0e61d00 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v19)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v20)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
@@ -4169,7 +4173,16 @@ index 1054228..0e61d00 100644
 +            unsigned int txst = v & 0x03u;
 +
 +            stage = (int)((v >> 26) & 0x0Fu);
-+            if (stage < 1 || stage > 8)
++            /* ★ v20 修的一个真 bug ★
++             * v19 时这里写的是 stage > 8，而 v19 自己新增的 NB_STAGE_LOOPBACK 是 9
++             * ——于是所有 stage==9 的报错都被这一句夹成 0（stageName[0] = "?"），
++             * 而下面那个 `else if (stage == 9)` 就成了【可证明的死代码】，被 -O2
++             * 整块删掉：屏幕上看不到四条 LOOPBACK 短语，表现与 v18 完全一致。
++             * 实证：CI 产物 opl.elf 里 'resident (raw SMAP v19)' 命中 1，
++             * 而四条 LOOPBACK 短语命中 0（同一个 gui.c，说明不是没重编）。
++             * 教训：改 stage 表/加新 stage 时，**这个范围保护必须同步扩**。
++             * 第 7 道闸已加入核对（tools/diag_pack_roundtrip_check.py）。 */
++            if (stage < 1 || stage > 9)
 +                stage = 0; /* 防越界，stageName[0] = "?" */
 +
 +            if (stage == 2) {
@@ -4242,16 +4255,16 @@ index 1054228..0e61d00 100644
 +                 * 所以"帧在 MAL 里没人取"这个判断必须看 nrx，不能看 fl&8。 */
 +                if (nrx > 0u && !(fl & 1u)) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK: MAL frames, no IRQ nrx=%u (v19)", nrx);
++                             "NetBox: FAIL noreply LOOPBACK: MAL frames, no IRQ nrx=%u (v20)", nrx);
 +                } else if ((fl & 1u) && nok > 0u) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK OK: PS2 rx path fine (v19)");
++                             "NetBox: FAIL noreply LOOPBACK OK: PS2 rx path fine (v20)");
 +                } else if (fl & 1u) {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK: IRQ ran, no frame nrx=%u (v19)", nrx);
++                             "NetBox: FAIL noreply LOOPBACK: IRQ ran, no frame nrx=%u (v20)", nrx);
 +                } else {
 +                    snprintf(netboxStatus, sizeof(netboxStatus),
-+                             "NetBox: FAIL noreply LOOPBACK DEAD: PS2 never rx (v19)");
++                             "NetBox: FAIL noreply LOOPBACK DEAD: PS2 never rx (v20)");
 +                }
 +            } else {
 +                /* [v18] 链路已经确认是通的（否则会停在 stage 2），
@@ -4294,7 +4307,7 @@ index 1054228..0e61d00 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v19)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v20)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
