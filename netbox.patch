@@ -2504,7 +2504,7 @@ index b3b1796..d557d8e 100644
  
  #include "xfer.h"
 diff --git a/modules/network/smap-ingame/smap.c b/modules/network/smap-ingame/smap.c
-index f43eb20..110271a 100644
+index f43eb20..b2f9dff 100644
 --- a/modules/network/smap-ingame/smap.c
 +++ b/modules/network/smap-ingame/smap.c
 @@ -355,9 +355,32 @@ static unsigned int LinkCheckTimerCB(struct SmapDriverData *SmapDrivPrivData)
@@ -2571,7 +2571,7 @@ index f43eb20..110271a 100644
              SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_RXEND;
              HandleRxIntr(&SmapDriverData);
          }
-@@ -674,3 +714,429 @@ int SMAPGetMACAddress(unsigned char *buffer)
+@@ -674,3 +714,440 @@ int SMAPGetMACAddress(unsigned char *buffer)
  
      return 0;
  }
@@ -2828,14 +2828,24 @@ index f43eb20..110271a 100644
 + * 好在"链路已经 up、不该打断它"时也能做 MAC 侧对齐。 */
 +static void SmapSyncLinkMode(void)
 +{
-+    volatile u8 *base = SmapDriverData.emac3_regbase;
++    /* ★ 变量名必须是 emac3_regbase，不能图省事叫 base ★
++     * ps2sdk 的 smapregs.h 里，SMAP_EMAC3_GET32/SET32/REG32 这些宏是
++     *     #define SMAP_EMAC3_REG32(offset) (*(volatile u32 *)(emac3_regbase + (offset)))
++     * —— 宏体里的 emac3_regbase 是个【裸标识符】，靠调用点所在函数的局部
++     * 变量来满足。上游各函数要么自己写 `volatile u8 *emac3_regbase;`
++     * （InitPHY 第 124 行、SMAPStart、SMAPStop…），要么用 USE_SMAP_EMAC3_REGS;
++     * （smap_init 第 576 行）展开出这个局部变量。
++     * 本文件没有同名全局，所以一旦改名就报
++     *     error: 'emac3_regbase' undeclared (first use in this function)
++     * 本函数第 996 行就是这么挂的（2026-09-25 CI）。 */
++    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
 +    u16 bmcr, anar, anlpar, value;
 +    unsigned int LinkSpeed100M, LinkFDX, FlowControlEnabled;
 +    u32 emac3_value;
 +
-+    bmcr = _smap_read_phy(base, SMAP_DsPHYTER_BMCR);
-+    anar = _smap_read_phy(base, SMAP_DsPHYTER_ANAR);
-+    anlpar = _smap_read_phy(base, SMAP_DsPHYTER_ANLPAR);
++    bmcr = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMCR);
++    anar = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANAR);
++    anlpar = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANLPAR);
 +
 +    FlowControlEnabled = 0;
 +    if (bmcr & SMAP_PHY_BMCR_ANEN) {
@@ -2897,7 +2907,8 @@ index f43eb20..110271a 100644
 + */
 +int smap_phy_reinit(unsigned int *out, int n)
 +{
-+    volatile u8 *base = SmapDriverData.emac3_regbase;
++    /* ★ 同上：宏里要的是裸标识符 emac3_regbase，别改名（见 SmapSyncLinkMode 注释） */
++    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
 +    u16 v;
 +    int i, rc = 2, restarted = 0;
 +
@@ -2922,9 +2933,9 @@ index f43eb20..110271a 100644
 +    }
 +
 +    /* --- 1) 软复位 PHY，最多等 200ms --- */
-+    _smap_write_phy(base, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_RST);
++    _smap_write_phy(emac3_regbase, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_RST);
 +    for (i = 0; i < 200; i++) {
-+        if (!(_smap_read_phy(base, SMAP_DsPHYTER_BMCR) & SMAP_PHY_BMCR_RST))
++        if (!(_smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMCR) & SMAP_PHY_BMCR_RST))
 +            break;
 +        DelayThread(1000); /* 1ms */
 +    }
@@ -2934,7 +2945,7 @@ index f43eb20..110271a 100644
 +    }
 +
 +    /* --- 2) 链路本来就好在的话就别打断它 --- */
-+    v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++    v = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR);
 +    if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
 +        rc = 0;
 +        goto sync;
@@ -2944,10 +2955,10 @@ index f43eb20..110271a 100644
 +    for (i = 0; i < 2 && rc != 0; i++) {
 +        int k;
 +
-+        _smap_write_phy(base, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_ANEN | SMAP_PHY_BMCR_RSAN);
++        _smap_write_phy(emac3_regbase, SMAP_DsPHYTER_BMCR, SMAP_PHY_BMCR_ANEN | SMAP_PHY_BMCR_RSAN);
 +        for (k = 0; k < 30; k++) { /* 30 x 100ms = 3s */
 +            DelayThread(100 * 1000);
-+            v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++            v = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR);
 +            if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
 +                rc = 0;
 +                break;
@@ -2959,12 +2970,12 @@ index f43eb20..110271a 100644
 +    for (i = 0; i < 2 && rc != 0; i++) {
 +        int k;
 +
-+        _smap_write_phy(base, SMAP_DsPHYTER_BMCR,
++        _smap_write_phy(emac3_regbase, SMAP_DsPHYTER_BMCR,
 +                        (i == 0) ? SMAP_PHY_BMCR_100M : SMAP_PHY_BMCR_10M);
 +        DelayThread(200 * 1000);          /* 给 PHY 稳定时间 */
 +        for (k = 0; k < 20; k++) {        /* 20 x 100ms = 2s */
 +            DelayThread(100 * 1000);
-+            v = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
++            v = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR);
 +            if (v != 0xFFFFu && v != 0x0000u && (v & SMAP_PHY_BMSR_LINK)) {
 +                rc = 0;
 +                break;
@@ -2986,17 +2997,17 @@ index f43eb20..110271a 100644
 +        SetAlarm(&SmapDriverData.LinkCheckTimer, (void *)&LinkCheckTimerCB, &SmapDriverData);
 +    }
 +
-+    out[0] = _smap_read_phy(base, SMAP_DsPHYTER_BMCR);
-+    out[1] = _smap_read_phy(base, SMAP_DsPHYTER_BMSR);
-+    out[2] = _smap_read_phy(base, SMAP_DsPHYTER_PHYIDR1);
-+    out[3] = _smap_read_phy(base, SMAP_DsPHYTER_PHYIDR2);
-+    out[4] = _smap_read_phy(base, SMAP_DsPHYTER_ANAR);
-+    out[5] = _smap_read_phy(base, SMAP_DsPHYTER_ANLPAR);
-+    out[6] = _smap_read_phy(base, SMAP_DsPHYTER_PHYSTS);
++    out[0] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMCR);
++    out[1] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_BMSR);
++    out[2] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYIDR1);
++    out[3] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYIDR2);
++    out[4] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANAR);
++    out[5] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANLPAR);
++    out[6] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_PHYSTS);
 +    out[7] = (SMAP_EMAC3_GET32(SMAP_R_EMAC3_MODE1) & SMAP_E3_FDX_ENABLE) ? 1u : 0u;
 +    out[8] = (unsigned int)SmapDriverData.LinkMode;
 +    out[9] = (unsigned int)SmapDriverData.LinkStatus;
-+    out[10] = _smap_read_phy(base, SMAP_DsPHYTER_ANER);
++    out[10] = _smap_read_phy(emac3_regbase, SMAP_DsPHYTER_ANER);
 +    out[11] = (unsigned int)rc | (1u << 4);
 +
 +    return (rc == 0) ? 0 : 1;
