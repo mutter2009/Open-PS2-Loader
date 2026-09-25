@@ -1,73 +1,11 @@
 diff --git a/.github/workflows/opl-netbox.yml b/.github/workflows/opl-netbox.yml
-new file mode 100644
-index 0000000..6b7147f
---- /dev/null
+index 8055448..98609e3 100644
+--- a/.github/workflows/opl-netbox.yml
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,221 @@
-+# [NETBOX] 云端编译 OPL + netbox 驱动
-+#
-+# 为什么要有这个 workflow：
-+#   netbox.patch 只是一个"补丁文件"，光把它上传到仓库不会改动任何代码。
-+#   直接跑 CI-compile 编出来的是原版 OPL（没有 netbox 驱动）。
-+#   本 workflow 在云端先 git apply 补丁，再编译，产出带 netbox 的 ELF。
-+#
-+# 触发方式：只允许手动触发（Actions 页 -> 左侧选 "OPL-netbox" -> 右上角 Run workflow）
-+#          刻意不配置 push 触发，这样每次改动/上传文件都不会自动编译。
-+name: OPL-netbox
-+
-+on:
-+  workflow_dispatch:
-+
-+jobs:
-+  build:
-+    runs-on: ubuntu-latest
-+    container: ghcr.io/ps2homebrew/ps2homebrew:main
-+    steps:
-+      - name: git checkout
-+        uses: actions/checkout@v4
-+
-+      - name: Full history
-+        run: |
-+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-+          git fetch --prune --unshallow || true
-+
-+      - name: 补丁指纹（确认编的是哪一版补丁）
-+        run: |
-+          sha256sum netbox.patch
-+          grep -c '^diff --git' netbox.patch
-+
-+      - name: Apply netbox patch
-+        run: |
-+          git apply --verbose --exclude='.github/workflows/*' netbox.patch
-+
-+      - name: Compile -> make clean release
-+        run: make --trace clean release
-+
-+      # 关键：发布版 ELF 是 ps2-packer 压缩过的，字符串全没了，
-+      # 没法用它判断"驱动到底有没有编进去"。所以这里另外收集证据：
-+      # 未压缩的 opl.elf、链接 map、以及 bin2c 产物。
-+      - name: Collect verification info
-+        if: ${{ always() }}
-+        run: |
-+          {
-+            echo "=== netbox.patch sha256（对着我给的哈希核对版本）==="
-+            sha256sum netbox.patch
-+            echo
-+            echo "=== modules/netbox IRX 产物 ==="
-+            ls -la modules/netbox/*.irx 2>&1
-+            echo
-+            echo "=== bin2c 产物 asm/netbox.c ==="
-+            ls -la asm/netbox.c 2>&1
-+            echo
-+            echo "=== 目标文件 obj/netbox.o ==="
-+            ls -la obj/netbox.o 2>&1
-+            echo
-+            echo "=== opl.map 里的 netbox 符号（证明链进了 ELF）==="
-+            grep -i netbox opl.map 2>&1 | head -30
-+            echo
-+            echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
-+            strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
-+            echo
+@@ -62,6 +62,159 @@ jobs:
+             echo "=== 未压缩 opl.elf 里的 netbox 字符串 ==="
+             strings -a opl.elf 2>/dev/null | grep -i netbox | head -20
+             echo
 +            echo "=== [v12 关键证据] SMAP 原始帧钩子的接线是否真的编进了二进制 ==="
 +            echo "--- smap-ingame 的导出表必须含库名 netboxh ---"
 +            ls -la modules/network/smap-ingame/smap.irx 2>&1
@@ -101,7 +39,7 @@ index 0000000..6b7147f
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.12 ... PHY loopback + A/B listen（看到 v1.12 才是本轮；v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.13 ... PHY loopback + A/B listen + linkchk（看到 v1.13 才是本轮；v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,7 +58,7 @@ index 0000000..6b7147f
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.12 标记           : $(grep -a -c 'v1.12' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.13 标记           : $(grep -a -c 'v1.13' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
 +            echo "A/B listen     : $(grep -a -c 'A/B listen' modules/netbox/netbox.irx 2>&1)"
@@ -130,7 +68,7 @@ index 0000000..6b7147f
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v22)'   : $(grep -a -c 'resident (raw SMAP v22)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v23)'   : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
 +            echo "=== [v18 关键证据] 「收发现场计数」上屏那条路通没通 ==="
@@ -170,16 +108,16 @@ index 0000000..6b7147f
 +            echo "OPL.elf: 'PHY LPBK: MAL frames, no IRQ nrx=' : $(grep -a -c 'PHY LPBK: MAL frames, no IRQ nrx=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY LPBK: IRQ ran, no frame nrx='  : $(grep -a -c 'PHY LPBK: IRQ ran, no frame nrx=' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 10 分支没编进去）"
-+            echo "--- ★ v21 关键：stage 范围保护必须 ≥ 11 ★---"
++            echo "--- ★ v21 关键：stage 范围保护必须 ≥ 12 ★---"
 +            echo "  （v19 就是死在这一格：当时加了 NB_STAGE_LOOPBACK=9，保护却还写着"
 +            echo "    stage > 8，于是 stage 9 被夹成 0、分支被 -O2 当死代码整块删掉，"
 +            echo "    屏幕表现与 v18 一模一样。改 stage 表就必须同步扩这个上界。）"
-+            echo "gui.c: 'stage > 11'                   : $(grep -a -c 'stage > 11' src/gui.c 2>&1)"
++            echo "gui.c: 'stage > 12'                   : $(grep -a -c 'stage > 12' src/gui.c 2>&1)"
 +            echo "gui.c: 'phylpbk'                      : $(grep -a -c 'phylpbk' src/gui.c 2>&1)"
 +            echo "gui.c: 'listen'                       : $(grep -a -c 'listen' src/gui.c 2>&1)"
 +            echo "--- netbox.irx 侧 v21/v22 诊断串 ---"
 +            echo "netbox.irx: 'v21 phy-loopback:'      : $(grep -a -c 'v21 phy-loopback:' modules/netbox/netbox.irx 2>&1)"
-+            echo "netbox.irx: 'v22 AB listen'          : $(grep -a -c 'v22 AB listen' modules/netbox/netbox.irx 2>&1)"
++            echo "netbox.irx: 'v23 AB listen'          : $(grep -a -c 'v23 AB listen' modules/netbox/netbox.irx 2>&1)"
 +            echo "netbox.irx: 'v22 phy: bmcr='         : $(grep -a -c 'v22 phy: bmcr=' modules/netbox/netbox.irx 2>&1)"
 +            echo "netbox.irx: 'v22 f%d len=%d dst='    : $(grep -a -c 'v22 f%d len=%d dst=' modules/netbox/netbox.irx 2>&1)"
 +            echo
@@ -200,31 +138,30 @@ index 0000000..6b7147f
 +            echo "OPL.elf: 'RX SILENT 0 frames -> line/box (v22)' : $(grep -a -c 'RX SILENT 0 frames -> line/box (v22)' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 11 分支没编进去）"
 +            echo
++            echo "=== [v23 关键证据] 链路 + TX 体检（stage 12 / linkchk）—— 这一格整套位布局换过 ==="
++            echo "--- 驱动侧新函数必须真的编进去（查未 strip 的 ELF）---"
++            echo "netbox ELF nb_diag_pack_linkchk  : $(grep -a -c 'nb_diag_pack_linkchk' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "netbox ELF nb_linkchk            : $(grep -a -c 'nb_linkchk' modules/netbox/netbox.notiopmod.elf 2>&1)"
++            echo "--- v23 关键：stage 范围保护必须 ≥ 12、stageName 必须含 linkchk ---"
++            echo "  （v19 的翻车教训：加 stage 必须同步扩上界，否则新分支被 -O2 当死代码删掉。）"
++            echo "gui.c: 'stage > 12'                   : $(grep -a -c 'stage > 12' src/gui.c 2>&1)"
++            echo "gui.c: 'linkchk'                      : $(grep -a -c '\"linkchk\"' src/gui.c 2>&1)"
++            echo "--- v23 判定函数必须读 g_pc[]（BMCR/BMSR/PHYSTS/FCSCR/RECR）+ g_lk[] ---"
++            echo "netbox_bd.c: 'smap_phy_counters(g_pc, 8)' : $(grep -a -c 'smap_phy_counters(g_pc, 8)' modules/netbox/netbox_bd.c 2>&1)"
++            echo "netbox_bd.c: 'NB_BMCR_LPBK_BIT'          : $(grep -a -c 'NB_BMCR_LPBK_BIT' modules/netbox/netbox_bd.c 2>&1)"
++            echo "--- gui.c 侧 v23 短语（LINKCHK 那一格的措辞，至少代表两种修法方向）+ 成功串 ---"
++            echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
++            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
++            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v23)'      : $(grep -a -c 'resident (raw SMAP v23)' opl.elf 2>&1)"
++            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
++            echo
 +            echo "--- smap-ingame 的构建顺序（必须先于 netbox）---"
 +            grep -n "smap-ingame\|netbox" opl.map 2>/dev/null | head -10
 +            echo
-+            echo "=== 产物清单 ==="
-+            ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
-+          } > verify.txt 2>&1
-+          cat verify.txt
-+
-+      - name: Upload ELF（PS2 用这个）
-+        if: ${{ success() }}
-+        uses: actions/upload-artifact@v4
-+        with:
-+          name: OPNPS2LD-netbox
-+          path: OPNPS2LD-*.ELF
-+
-+      - name: Upload build evidence（排查用，别拷进 PS2）
-+        if: ${{ always() }}
-+        uses: actions/upload-artifact@v4
-+        with:
-+          name: netbox-build-verify
-+          if-no-files-found: warn
-+          path: |
-+            verify.txt
-+            opl.elf
-+            opl.map
+             echo "=== 产物清单 ==="
+             ls -la OPNPS2LD*.ELF opl.elf opl_stripped.elf 2>&1
+           } > verify.txt 2>&1
 diff --git a/Makefile b/Makefile
 index d02af90..587fc44 100644
 --- a/Makefile
@@ -684,10 +621,10 @@ index 0000000..6b7e972
 +#endif /* __NETBOX_H__ */
 diff --git a/modules/netbox/netbox_bd.c b/modules/netbox/netbox_bd.c
 new file mode 100644
-index 0000000..4a5818c
+index 0000000..751549c
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2184 @@
+@@ -0,0 +1,2413 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -954,12 +891,35 @@ index 0000000..4a5818c
 +static int          g_listen_a  = 0; /* 窗口 A（纯听）内 MAL 硬件收到的帧数 */
 +static int          g_listen_b  = 0; /* 窗口 B（发帧后）内 MAL 硬件收到的帧数 */
 +static int          g_listen_ca = 0; /* 窗口 A 内抓到的帧数（判定首帧来自哪个窗口） */
++static int          g_listen_silent = 0; /* 两窗口都 0 帧 => SILENT（符合盒子静默监听，不证明故障）*/
 +static unsigned int g_f_kind = 0; /* 首帧种类 0=无 1=广播 2=厂商多播 3=其他多播 4=单播 */
 +static unsigned int g_f_d3   = 0; /* 首帧 (dst[3]>>5)&3（分 ff:34:43:{52,30,00,ff}）*/
 +static unsigned int g_f_u    = 0; /* 首帧源 MAC 前 3 字节 == 08:00:27（盒子）*/
 +static unsigned int g_f_et   = 0; /* 首帧 EtherType == 0x0800（IPv4）*/
 +static unsigned int g_f_p4   = 0; /* 首帧 UDP 目的端口 == 40000 */
 +static unsigned int g_f_p3   = 0; /* 首帧 UDP 源端口  == 30000 */
++
++/* [v23] 链路体检 + TX 残留的全局状态。
++ *
++ * 为什么是全局：这些值在 nb_phy_loopback_selftest() / nb_listen_probe() 里
++ * 采集，却要在 nb_diag_pack_linkchk()（文件更靠前）里打包上屏 —— 和上面
++ * v22 那几个一样，声明必须落在所有使用者之前，否则 undeclared。
++ *
++ * 起因（本轮两条实机+代码复核结论）：
++ *   1) v22 屏幕上的 "RX SILENT 0 frames" 不能直接读成"线坏了" ——
++ *      2026-09-23 的真值抓包（NETBOX_REFERENCE_FRAMES.md §2）写明：
++ *      **盒子单独接 PC 时一个包都不发**，它是"静默监听、只在收到正确探测后
++ *      才应答"的设计。所以纯听窗口本来就该是 0，"听不到"不是新信息。
++ *   2) 真正悬着没验证过的是【我们的帧到底有没有上线路】。参考帧文档 §6
++ *      记着"我们的构建在 PS2 侧抓到 0 帧"，而发送侧一律返回 1。
++ *      SMAP_R_TXFIFO_FRAME_CNT（"发送队列里还没发完的帧数"）就是查它用的：
++ *      发完等 120ms 之后它还不是 0  =>  MAC 压根没把帧取走。
++ */
++static int          g_txq10 = 0;  /* stage 10（PHY 自环）发送后 TX FIFO 残留帧数 */
++static int          g_txq11 = 0;  /* stage 11 窗口 B 发送后 TX FIFO 残留帧数    */
++static int          g_lk_rc = -1; /* smap_phy_reinit() 的返回：0=链路就绪 1=没就绪 */
++static unsigned int g_lk[12];     /* smap_phy_reinit() 的现场快照（索引见其注释）*/
++static unsigned int g_pc[8];      /* smap_phy_counters() 的新鲜读值（stage 12 用）*/
 +
 +static void netbox_raw_hook(const unsigned char *frame, int len)
 +{
@@ -1227,6 +1187,12 @@ index 0000000..4a5818c
 +/*       二者都复用 v18 的位布局，只是 g_rxd 里装的是【那个实验自己】的读数。   */
 +#define NB_STAGE_PHYLPBK 10
 +#define NB_STAGE_LISTEN  11
++/* [v23] 12 = 链路 + TX 体检。走到这里说明"两格自环通过、而且 A/B 窗口一帧
++ *        都没有"。这一格报的不是"又听了一遍"，而是三组硬信息：
++ *        TX FIFO 残留（帧有没有被 MAC 发出去）、PHY 的 link 状态、
++ *        PHY 有没有还停在 v21/v22 留下的自环里。
++ *        ★ 位布局与 stage 11 完全不同，见 nb_diag_pack_linkchk()。 */
++#define NB_STAGE_LINKCHK 12
 +
 +/* ------------------------------------------------------------------
 + * [v17] 链路诊断包 —— 失败时把「链路现场」整个编进返回值。
@@ -1500,6 +1466,82 @@ index 0000000..4a5818c
 +    return (int)v;
 +}
 +
++/* ------------------------------------------------------------------
++ * [v23] stage 12 —— 「链路 + TX」体检
++ *
++ * 为什么要有这一格：v22 实机报 "RX SILENT 0 frames"。
++ * 而 2026-09-23 的真值抓包（NETBOX_REFERENCE_FRAMES.md §2）写明：
++ * **盒子单独接 PC 时一个包都不发** —— 它是"静默监听、只在收到正确探测后
++ * 才应答"的设计。所以"纯听窗口 0 帧"是【符合预期】的，它既不能证明线坏、
++ * 也不能证明盒子没工作。上一轮把 SILENT 读成"线/盒子"偏重了。
++ *
++ * 真正还没被验证过的是另外两件事：
++ *   (a) **我们发出去的帧到底有没有上线路** —— 参考帧文档 §6 记着
++ *       "我们的构建在 PS2 侧抓到 0 帧"，而发送侧一律返回 1。
++ *       查法：SMAP_R_TXFIFO_FRAME_CNT（"发送队列里还没发完的帧数"）。
++ *       发完等 120ms 它还不是 0  =>  MAC 压根没把帧取走。
++ *   (b) PHY 到底停在什么状态 —— 尤其是 v21/v22 那两次 PHY 自环实验留下的
++ *       BMCR bit14 有没有真的清掉（没清掉的话线上一帧都进不来）。
++ *
++ * 位布局（与 src/gui.c 里 stage == 12 分支的注释【必须逐字一致】）：
++ *   bit0      link1    smap_phy_reinit() 报的 LinkStatus（做完完整恢复之后）
++ *   bit1      link2    之后再读一次 BMSR 的 link 位（判它稳不稳）
++ *   bit2      lp_stuck BMCR 回读 bit14 仍为 1 => PHY 还停在自环里（致命）
++ *   bit3      aneg     BMSR bit5 自协商完成
++ *   bit4      spd100   LinkMode 报的是 100M（>0x0C 或 0x0A 组）
++ *   bit5      fdx      LinkMode 报的是全双工
++ *   bit6      flow     LinkMode 的流控位（0x40）
++ *   bit7      partner  ANLPAR 有效（不是 0 也不是 0xFFFF => 真有活对端）
++ *   bit8      txq10    stage 10 发完 120ms 后 TX FIFO 仍有残留 => TX 卡住
++ *   bit9      txq11    stage 11 窗口 B 发完后 TX FIFO 仍有残留
++ *   bit10     fcscr_nz FCSCR != 0
++ *   bit11     recr_nz  RECR != 0
++ *   bit12..15 bmsr_lo  BMSR 低 4 位（原始值，人工判读用）
++ *   bit16..19 sts_lo   PHYSTS 低 4 位
++ *   bit20..23 anlpar_lo ANLPAR 低 4 位（0 = 对端什么都没说）
++ *   bit24     phy_gone PHYIDR1/PHYIDR2 都是 0xFFFF（该地址上没有 PHY）
++ *   bit25     0        保留
++ *   bit26..29 stage    （与其它 stage 共用这个位置）
++ *   bit30     MARK     打包标记（NB_V17_MARK，绝不能被别的字段占用）
++ *   bit31     0        必须为 0
++ * ------------------------------------------------------------------ */
++#define NB_BMCR_LPBK_BIT (1u << 14) /* BMCR bit14 = Loopback（802.3）*/
++
++static int nb_diag_pack_linkchk(int stage)
++{
++    unsigned int v = (unsigned int)NB_V17_MARK;
++    unsigned int bmcr    = g_pc[0] & 0xFFFFu;
++    unsigned int bmsr    = g_pc[1] & 0xFFFFu;
++    unsigned int sts     = g_pc[2] & 0xFFFFu;
++    unsigned int fcscr   = g_pc[3] & 0xFFFFu;
++    unsigned int recr    = g_pc[4] & 0xFFFFu;
++    unsigned int anlpar  = g_lk[5] & 0xFFFFu;
++    unsigned int lm      = g_lk[8];
++    unsigned int idr1    = g_lk[2] & 0xFFFFu;
++    unsigned int idr2    = g_lk[3] & 0xFFFFu;
++
++    v |= (((g_lk[9] != 0u) ? 1u : 0u) << 0)
++       | ((((bmsr & 0x0004u) != 0u) ? 1u : 0u) << 1)   /* BMSR bit2 = Link */
++       | ((((bmcr & NB_BMCR_LPBK_BIT) != 0u) ? 1u : 0u) << 2)
++       | ((((bmsr & 0x0020u) != 0u) ? 1u : 0u) << 3)   /* BMSR bit5 = AN 完成 */
++       /* LinkMode：bit0..3 编码 1:10M半 2:10M全 4:100M半 8:100M全，bit6 = 流控 */
++       | ((((lm & 0x0Cu) != 0u) ? 1u : 0u) << 4)
++       | ((((lm & 0x0Au) != 0u) ? 1u : 0u) << 5)
++       | ((((lm & 0x40u) != 0u) ? 1u : 0u) << 6)
++       | (((anlpar != 0u && anlpar != 0xFFFFu) ? 1u : 0u) << 7)
++       | (((g_txq10 != 0) ? 1u : 0u) << 8)
++       | (((g_txq11 != 0) ? 1u : 0u) << 9)
++       | (((fcscr != 0u && fcscr != 0xFFFFu) ? 1u : 0u) << 10)
++       | (((recr  != 0u && recr  != 0xFFFFu) ? 1u : 0u) << 11)
++       | ((bmsr & 0x0Fu) << 12)
++       | ((sts  & 0x0Fu) << 16)
++       | ((anlpar & 0x0Fu) << 20)
++       | ((((idr1 == 0xFFFFu && idr2 == 0xFFFFu) ? 1u : 0u)) << 24)
++       | ((((unsigned int)stage) & 0x0Fu) << 26);
++
++    return (int)v;
++}
++
 +/*
 + * [v16→v17] PHY 身份分类 —— 只分类，不再判失败。
 + *
@@ -1700,6 +1742,12 @@ index 0000000..4a5818c
 +     * 那一组（A/B 计数 + 首帧身份），位布局见 nb_diag_pack_listen()。 */
 +    if (stage == NB_STAGE_LISTEN)
 +        return nb_diag_pack_listen(stage);
++
++    /* [v23] stage 12 装的是"链路 + TX"体检：TX FIFO 残留 / link 状态 /
++     * link 速率双工 / 对端能力 / PHY 有没有还卡在自环里。
++     * 位布局见 nb_diag_pack_linkchk()。 */
++    if (stage == NB_STAGE_LINKCHK)
++        return nb_diag_pack_linkchk(stage);
 +
 +    return nb_diag_pack18(stage);
 +}
@@ -1983,14 +2031,23 @@ index 0000000..4a5818c
 +    nb_snapshot();
 +
 +    /* 6) 只对【累加型】计数器取增量。索引见 smap_get_rx_diag 的 out[] 布局：
++     *      0 MAL 硬件收帧计数（RXFIFO_FRAME_CNT，读寄存器但语义是累计）
 +     *      3 EMAC3 标志累计 OR      4 中断回调次数     5 RXEND 次数
 +     *      6 EMAC3 事件次数          7 HandleRxIntr 次数 8 看到 FRAME_CNT>0 次数
 +     *      9 交给钩子的帧数         10 因错误标志丢的帧数 11 第一条丢帧 ctrl_stat
-+     *    不取增量的：0（MAL 硬件计数，读寄存器）、2（INTR_STAT，读寄存器）、
++     *    不取增量的：1（TXFIFO_FRAME_CNT —— 是"队列里还剩几帧"的瞬时值，
++     *    减增量毫无意义，必须是现场读值）、2（INTR_STAT，读寄存器）、
 +     *    12~17（各寄存器现场值）、18（错误分类，本身是分类结果）。
-+     *    这份名单与 tools/diag_pack_roundtrip_check.py 的布局表必须一致。 */
++     *    这份名单与 tools/diag_pack_roundtrip_check.py 的布局表必须一致。
++     *
++     * ★ v23 修：out[0] 从"不取增量"改成"取增量" ★
++     *   它是 MAL 硬件的【累计】收帧计数，一直在涨。v19 起把它排除在增量名单外，
++     *   于是 stage 9/10 的判据里它成了"自开机以来收过的所有帧"——只要前面
++     *   任何一格收过一帧，它就永远 > 0。那正是 v21/v22 "PHY 自环恒通过"、
++     *   v21 "线上 0 帧却报 HEARS BOX" 这两个假读数的共同根因。
++     *   现在它和别的累计量一样按窗口取增量，"窗口内收了几帧"才是判据。 */
 +    {
-+        static const int cum[] = {3, 4, 5, 6, 7, 8, 9, 10, 11};
++        static const int cum[] = {0, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 +        int k;
 +
 +        for (k = 0; k < (int)(sizeof(cum) / sizeof(cum[0])); k++) {
@@ -2042,7 +2099,7 @@ index 0000000..4a5818c
 +{
 +    static unsigned int base[20];
 +    static u8 req[512];
-+    static const int cum[] = {3, 4, 5, 6, 7, 8, 9, 10, 11};
++    static const int cum[] = {0, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 +    int i, k, len, saved_idx;
 +
 +    g_phy_lp_rx = 0;
@@ -2050,7 +2107,6 @@ index 0000000..4a5818c
 +    nb_snapshot();
 +    for (i = 0; i < 20; i++)
 +        base[i] = g_rxd[i];
-+
 +    /* 回环帧必须能被自己的地址过滤收下 —— 用候选表第 0 项（标准广播），
 +     * 不赌当前停在哪个 ff:34:43:xx 上。 */
 +    saved_idx     = nb_dstmac_idx;
@@ -2089,15 +2145,33 @@ index 0000000..4a5818c
 +    g_cap_on      = 0;
 +    nb_dstmac_idx = saved_idx;
 +
-+    g_phy_lp_rx = (int)g_rxd[9];
-+    if (g_phy_lp_rx == 0 && g_rxd[0] > 0)
-+        g_phy_lp_rx = (int)g_rxd[0];
++    /* ★ v23 修：删掉"回退到 g_rxd[0]"那一条路 ★
++     *
++     * 原来的写法是
++     *     g_phy_lp_rx = (int)g_rxd[9];
++     *     if (g_phy_lp_rx == 0 && g_rxd[0] > 0)
++     *         g_phy_lp_rx = (int)g_rxd[0];
++     * 而当时 g_rxd[0] 是【自开机以来的累计】MAL 收帧数（它不在增量名单里），
++     * stage 9 的内自环一收到帧，它就永远 > 0 —— 于是这一格【恒报通过】，
++     * 哪怕 PHY 自环其实完全不通。v21/v22 屏幕上那个"阶梯走到 stage 11"
++     * 就是这么来的（等于只走通了 stage 9）。
++     *
++     * 现在 g_rxd[0] 也进了增量名单（见上面 cum[]），两个量都是"本窗口内"
++     * 的读数，直接判即可，不再需要、也绝不允许任何回退。 */
++    g_phy_lp_rx = (int)(g_rxd[0] | g_rxd[9]);
++
++    /* ★ v23 新增：TX FIFO 残留 ★
++     * g_rxd[1] = SMAP_R_TXFIFO_FRAME_CNT（"发送队列里还没发完的帧数"），
++     * 是【现场值】而不是增量。刚才发了 3 帧、又等了 120ms，正常情况 MAC 早该
++     * 取走（归 0）。若这里还不是 0，说明帧根本没被 MAC 发上 MII ——
++     * 这正好能解释"发送返回 1、线上却一帧都没有"那个悬了很久的现象。 */
++    g_txq10 = (g_rxd[1] > 255u) ? 255 : (int)g_rxd[1];
 +
 +    {
 +        char msg[160];
 +
-+        sprintf(msg, "v21 phy-loopback: mal=%u intr=%u rxend=%u ok=%u bad=%u",
-+                g_rxd[0], g_rxd[4], g_rxd[5], g_rxd[9], g_rxd[10]);
++        sprintf(msg, "v23 phy-loopback: mal=%u ok=%u bad=%u txq=%u intr=%u rxend=%u",
++                g_rxd[0], g_rxd[9], g_rxd[10], g_rxd[1], g_rxd[4], g_rxd[5]);
 +        nb_diag(msg);
 +    }
 +}
@@ -2182,20 +2256,39 @@ index 0000000..4a5818c
 +    }
 +}
 +
-+static void nb_listen_probe(int ms)
++static void nb_listen_probe(int ms_a, int ms_b)
 +{
 +    static unsigned int base[20];
 +    static u8 req[512];
++    /* 只对【累加型】计数器取增量 —— 名单与 nb_loopback_selftest 里那份必须一致。
++     * v22 这里写的是"全 20 项都减基线"，把 g_rxd[1]（TXFIFO_FRAME_CNT，瞬时值）
++     * 和 12~18（各寄存器现场值）也一起减了，凭空造出一堆负数夹成 0 的垃圾值。
++     * 累加型的结论没错（g_rxd[0] 本来就在名单里），但别的项被弄脏了。 */
++    static const int cum[] = {0, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 +    int i, k, len, saved_idx;
 +
 +    g_listen_a = g_listen_b = g_listen_ca = 0;
++    g_txq11    = 0;
 +    g_cap_n    = 0;
 +
 +    /* 先确认两个自环都关着 —— 否则听到的全是自己绕回来的帧，毫无意义。 */
 +    smap_loopback_set(0);
 +
-+    /* 排空上一格（PHY 自环）可能还在路上的回环帧，再建基线。 */
-+    DelayThread(300 * 1000);
++    /* ★ v23：把 PHY 从上一格的自环实验里彻底恢复 ★
++     *
++     * smap_phy_loopback_set(0) 只清 BMCR 的 bit14 —— 既不重启自协商，也不等
++     * 链路重新同步。而 802.3 规定退出 loopback 后链路本来就要重来一遍。
++     * 也就是说 v21/v22 的监听窗口其实是在"PHY 刚退出实验态、链路还没恢复"
++     * 的状态下跑的，"听不到"是必然的 —— 那一格测到的是自己的实验残留。
++     *
++     * 这里改用 smap_phy_reinit()：它软复位 PHY（复位本身就清掉 loopback 位）、
++     * 重建链路、算 LinkMode、把 FDX 写回 EMAC3，并在链路就绪时重新落下
++     * MODE0(TXRX使能) 与 RxMODE(含 RX_BCAST) —— 最接近"原厂 InitPHY 重跑"
++     * 的一次恢复。现场留在 g_lk[] / g_lk_rc 里，stage 12 直接拿来用。 */
++    g_lk_rc = smap_phy_reinit(g_lk, 12);
++
++    /* 排空上面这次恢复 / 上一格自环可能还在路上的回环帧，再建基线。 */
++    DelayThread(400 * 1000);
 +
 +    /* ---------------- 窗口 A：纯听，什么都不发 ---------------- */
 +    nb_snapshot();
@@ -2204,11 +2297,14 @@ index 0000000..4a5818c
 +
 +    g_cap_on = 1;
 +
-+    DelayThread((u32)ms * 1000);
++    DelayThread((u32)ms_a * 1000);
 +
 +    nb_snapshot();
-+    for (k = 0; k < 20; k++)
-+        g_rxd[k] = (g_rxd[k] >= base[k]) ? (g_rxd[k] - base[k]) : 0;
++    for (k = 0; k < (int)(sizeof(cum) / sizeof(cum[0])); k++) {
++        int j = cum[k];
++
++        g_rxd[j] = (g_rxd[j] >= base[j]) ? (g_rxd[j] - base[j]) : 0;
++    }
 +
 +    g_listen_a  = (int)g_rxd[0];   /* MAL 硬件收帧计数 —— 不依赖中断那个 */
 +    g_listen_ca = g_cap_n;
@@ -2231,13 +2327,18 @@ index 0000000..4a5818c
 +
 +    nb_dstmac_idx = saved_idx;
 +
-+    DelayThread((u32)ms * 1000);
++    DelayThread((u32)ms_b * 1000);
 +
 +    nb_snapshot();
-+    for (k = 0; k < 20; k++)
-+        g_rxd[k] = (g_rxd[k] >= base[k]) ? (g_rxd[k] - base[k]) : 0;
++    for (k = 0; k < (int)(sizeof(cum) / sizeof(cum[0])); k++) {
++        int j = cum[k];
 +
-+    g_listen_b = (int)g_rxd[0];
++        g_rxd[j] = (g_rxd[j] >= base[j]) ? (g_rxd[j] - base[j]) : 0;
++    }
++
++    g_listen_b  = (int)g_rxd[0];
++    g_txq11     = (g_rxd[1] > 255u) ? 255 : (int)g_rxd[1];   /* 窗口 B 发送后 TX FIFO 残留 */
++    g_listen_silent = ((g_listen_a == 0) && (g_listen_b == 0)) ? 1 : 0;
 +
 +    g_cap_on = 0;
 +
@@ -2247,8 +2348,9 @@ index 0000000..4a5818c
 +        char msg[192];
 +        unsigned int pc[8];
 +
-+        sprintf(msg, "v22 AB listen %dms: A=%d B=%d capA=%d ok=%u bad=%u intr=%u",
-+                ms, g_listen_a, g_listen_b, g_listen_ca, g_rxd[9], g_rxd[10], g_rxd[4]);
++        sprintf(msg, "v23 AB listen %d/%dms: A=%d B=%d txq=%d silent=%d capA=%d ok=%u bad=%u intr=%u",
++                ms_a, ms_b, g_listen_a, g_listen_b, g_txq11, g_listen_silent,
++                g_listen_ca, g_rxd[9], g_rxd[10], g_rxd[4]);
 +        nb_diag(msg);
 +
 +        if (smap_phy_counters(pc, 8) == 0) {
@@ -2272,6 +2374,54 @@ index 0000000..4a5818c
 +            nb_diag(msg);
 +        }
 +    }
++}
++
++/*
++ * [v23] stage 12（链路 + TX 体检）的判定函数。
++ *
++ * 两格自环通过、A/B 监听窗口也跑完之后由失败阶梯调用。它本身不再做新实验，
++ * 只是把"当前链路 / TX 残留"这一最关键的未验证项读出来、就地判一遍。
++ *
++ * 返回：
++ *   0 = 链路 + TX 全好（SILENT 也只是盒子的正常静默监听，不是故障） => 调用方
++ *       落到成功路径（resident）。
++ *   非 0 = 发现硬故障（lp_stuck / txq / 无 link / 无 PHY）=> 调用方 nb_fail(LINKCHK)。
++ *
++ * 依赖（必须在此之前已经就位）：
++ *   - g_lk[]：smap_phy_reinit() 在 nb_listen_probe() 里已填好（PHYIDR1/2、
++ *     ANLPAR、LinkMode、LinkStatus），落的是"做完完整 PHY 恢复之后"的状态。
++ *   - g_txq10 / g_txq11：分别在 stage 10 / stage 11 窗口 B 发完帧后采的
++ *     TXFIFO_FRAME_CNT 残留。
++ *   - g_pc[]：本函数内由 smap_phy_counters() 填充（BMCR/BMSR/PHYSTS/FCSCR/RECR/PCSR），
++ *     失败时 nb_diag_pack_linkchk() 直接读它打包上屏。
++ *
++ * smap_phy_counters(out, n) 的 out[] 布局（与 nb_diag_pack_linkchk 必须一致）：
++ *   0 BMCR  1 BMSR  2 PHYSTS  3 FCSCR  4 RECR  5 PCSR。
++ */
++static int nb_linkchk(void)
++{
++    unsigned int bmcr, bmsr;
++    int lp, link, txq, gone;
++
++    if (smap_phy_counters(g_pc, 8) != 0) {
++        /* 读不到（SMAP 未初始化 / n 太小）就把 g_pc 清零，避免打包到上一轮脏值 */
++        int i;
++        for (i = 0; i < 8; i++)
++            g_pc[i] = 0;
++    }
++
++    bmcr = g_pc[0] & 0xFFFFu;
++    bmsr = g_pc[1] & 0xFFFFu;
++
++    lp   = (bmcr & NB_BMCR_LPBK_BIT) ? 1 : 0;                 /* PHY 卡自环 */
++    link = ((g_lk[9] != 0u) || ((bmsr & 0x0004u) != 0u)) ? 1 : 0; /* 重初始化后链路 */
++    txq  = ((g_txq10 != 0) || (g_txq11 != 0)) ? 1 : 0;        /* TX FIFO 残留 */
++    gone = ((g_lk[2] == 0xFFFFu) && (g_lk[3] == 0xFFFFu)) ? 1 : 0; /* 该地址无 PHY */
++
++    if (gone || lp || txq || !link)
++        return 1;   /* 硬故障 -> 调用方 nb_fail(NB_STAGE_LINKCHK) 打包上屏 */
++
++    return 0;       /* 链路 + TX 全好 -> 成功路径 */
 +}
 +
 +/* 开机握手：必须在第一次读扇区之前调用 */
@@ -2571,7 +2721,7 @@ index 0000000..4a5818c
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.12 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.13 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -2793,9 +2943,25 @@ index 0000000..4a5818c
 +        if (g_phy_lp_rx == 0)
 +            return nb_fail(NB_STAGE_PHYLPBK);
 +
-+        nb_listen_probe(400);
++        nb_listen_probe(400, 400);
 +
-+        return nb_fail(NB_STAGE_LISTEN);
++        /*
++         * [v23] SILENT（两窗口都 0 帧）不再无条件判"线/盒子坏了"——
++         * 2026-09-23 真值抓包（NETBOX_REFERENCE_FRAMES.md §2）证明盒子是静默
++         * 监听型，单独接 PC 一个包都不发；但"我们发了探测它却不回"仍然可能
++         * 是真故障。所以 SILENT 时先跑 stage 12 链路/TX 体检来定位真因：
++         *   - 发现 lp_stuck / txq / 无 link / 无 PHY => 报 LINKCHK（真因在我们这边）
++         *   - 链路 + TX 全好却仍 SILENT           => 报 LISTEN（线/盒子真不在）
++         * 不是 SILENT（收到了回包或无主流量）=> 线 + TX 显然活着，再跑一次
++         * linkchk 确认 TX 残留为 0，干净则落到成功路径（resident）。
++         */
++        if (g_listen_silent) {
++            if (nb_linkchk() != 0)
++                return nb_fail(NB_STAGE_LINKCHK);
++            return nb_fail(NB_STAGE_LISTEN);
++        }
++        if (nb_linkchk() != 0)
++            return nb_fail(NB_STAGE_LINKCHK);
 +    }
 +
 +    {
@@ -4669,10 +4835,10 @@ index f0462fa..a577aa1 100644
      ethDeinitModules();
  
 diff --git a/src/gui.c b/src/gui.c
-index 1054228..a5b53d7 100644
+index 1054228..c3dff02 100644
 --- a/src/gui.c
 +++ b/src/gui.c
-@@ -440,17 +440,407 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
+@@ -440,17 +440,464 @@ void guiShowNetCompatUpdateSingle(int id, item_list_t *support, config_set_t *co
  static void guiShowBlockDeviceConfig(void)
  {
      int ret;
@@ -4732,21 +4898,24 @@ index 1054228..a5b53d7 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v22)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
-+    //                                 + 链路 + 真读 LBA0 + 55AA 校验），BD 设备已注册，
++    //   resident (raw SMAP v23)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //                                 + 链路 + 真读 LBA0 + 55AA 校验 + 两格自环 + A/B
++    //                                 监听 + stage12 链路/TX 体检），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
 +    // 注意：diaSetLabel() 只保存指针不复制字符串（见 src/dia.c），必须是 static 缓冲。
 +    {
 +        static char netboxStatus[160];
-+        /* 与驱动 NB_STAGE_* 一一对应；下标 1..11 有效。
++        /* 与驱动 NB_STAGE_* 一一对应；下标 1..12 有效。
 +         *   9 loopback = v19 新增：报的是【EMAC3 内部自环】的读数。
 +         *  10 phylpbk  = v21 新增：报的是【PHY/MII 自环】的读数。
 +         *  11 listen   = v22 起改成【A/B 对照窗口】：报的是"对端在不在回我们"。
++         *  12 linkchk  = v23 新增：报的是【链路 + TX 体检】，把"我们的帧到底
++         *               有没有上线路"这一最关键的未验证项坐实（SILENT 不再判故障）。
 +         * 9/10 的读数都不是盒子的 —— 走到那里的前提就是盒子一个回包都没有；
-+         * 只有 11 才是"盒子的帧到底来没来、是不是回我们的"。 */
++         * 只有 11/12 才涉及"盒子的帧来没来 / 链路 TX 真不真"。 */
 +        static const char *stageName[] = {
 +            "?", "hook", "link", "mac", "tx", "noreply", "identify", "read0", "bootsig",
-+            "loopback", "phylpbk", "listen"
++            "loopback", "phylpbk", "listen", "linkchk"
 +        };
 +        int stage = 0;
 +
@@ -4815,7 +4984,7 @@ index 1054228..a5b53d7 100644
 +             * 而四条 LOOPBACK 短语命中 0（同一个 gui.c，说明不是没重编）。
 +             * 教训：改 stage 表/加新 stage 时，**这个范围保护必须同步扩**。
 +             * 第 7 道闸已加入核对（tools/diag_pack_roundtrip_check.py）。 */
-+            if (stage < 1 || stage > 11)
++            if (stage < 1 || stage > 12)
 +                stage = 0; /* 防越界，stageName[0] = "?" */
 +
 +            if (stage == 2) {
@@ -5002,6 +5171,60 @@ index 1054228..a5b53d7 100644
 +                             "NetBox: FAIL noreply RX UNSOLICITED A=%u B=%u dst=%c%c%X%s (v22)",
 +                             na, nb, kc, dc, d3, box ? " box" : "");
 +                }
++            } else if (stage == 12) {
++                /* [v23] 链路 + TX 体检 —— 见 netbox_bd.c 的 nb_diag_pack_linkchk()。
++                 * 位布局与该函数注释【逐字一致】（下面这 16 个局部变量名直接对应
++                 * 那张表的位）：
++                 *   bit0 link1 / bit1 link2 / bit2 lp_stuck / bit3 aneg / bit4 spd100
++                 *   bit5 fdx / bit6 flow / bit7 partner / bit8 txq10 / bit9 txq11
++                 *   bit10 fcscr_nz / bit11 recr_nz / bit12..15 bmsr_lo / bit16..19 sts_lo
++                 *   bit20..23 anlpar_lo / bit24 phy_gone
++                 * 只有 lp_stuck / txq / 无 link / 无 PHY 这四项才会让这一格真失败；
++                 * 否则链路 + TX 全好，SILENT 只是盒子的正常静默监听 -> 走成功路径。 */
++                int link1    = (int)(v & 0x01u);
++                int link2    = (int)((v >> 1) & 0x01u);
++                int lp_stuck = (int)((v >> 2) & 0x01u);
++                int aneg     = (int)((v >> 3) & 0x01u);
++                int spd100   = (int)((v >> 4) & 0x01u);
++                int fdx      = (int)((v >> 5) & 0x01u);
++                int flow     = (int)((v >> 6) & 0x01u);
++                int partner  = (int)((v >> 7) & 0x01u);
++                int txq10    = (int)((v >> 8) & 0x01u);
++                int txq11    = (int)((v >> 9) & 0x01u);
++                int fcscr_nz = (int)((v >> 10) & 0x01u);
++                int recr_nz  = (int)((v >> 11) & 0x01u);
++                int bmsr_lo  = (int)((v >> 12) & 0x0Fu);
++                int sts_lo   = (int)((v >> 16) & 0x0Fu);
++                int anlpar_lo= (int)((v >> 20) & 0x0Fu);
++                int phy_gone = (int)((v >> 24) & 0x01u);
++                int link     = link1 | link2;
++                int txq      = txq10 | txq11;
++
++                if (phy_gone) {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LINKCHK: NO PHY (idr=FFFF) (v23)");
++                } else if (lp_stuck) {
++                    /* ★ 这正是 v21/v22 监听窗口"测到的是自己的实验残留"的根因 ★ */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LINKCHK: PHY STUCK LOOPBACK link=%d (v23)", link);
++                } else if (txq) {
++                    /* 发完帧 TXFIFO 仍有残留 => MAC 没把帧取走上 MII，
++                     * 正好解释"发送返回 1、线上却 0 帧"。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LINKCHK: TX STUCK txq=%d%d link=%d aneg=%d (v23)",
++                             txq10, txq11, link, aneg);
++                } else if (!link) {
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: FAIL noreply LINKCHK: NO LINK aneg=%d bmsr=%X sts=%X (v23)",
++                             aneg, bmsr_lo, sts_lo);
++                } else {
++                    /* link 真、TX 干净、PHY 不在自环 —— stage 11 的 SILENT 是盒子
++                     * 正常的静默监听行为，不是故障；该看的是盒子侧 / 线缆。 */
++                    snprintf(netboxStatus, sizeof(netboxStatus),
++                             "NetBox: OK link=%d%d %s%s%s partner=%d fcs=%d rec=%d anlpar=%X (v23)",
++                             link1, link2, spd100 ? "100M" : "10M", fdx ? "F" : "H",
++                             flow ? "fc" : "", partner, fcscr_nz, recr_nz, anlpar_lo);
++                }
 +            } else {
 +                /* [v18] 链路已经确认是通的（否则会停在 stage 2），
 +                 * 所以这里要回答的不再是"线通不通"，而是
@@ -5043,7 +5266,7 @@ index 1054228..a5b53d7 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v22)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v23)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
