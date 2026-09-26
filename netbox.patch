@@ -101,7 +101,7 @@ index 0000000..914e991
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.16 ... PHY loopback + A/B listen + linkchk + unified screen tag + factory tx frame len + vendor-first dst MAC（看到 v1.16 才是本轮；v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.17 ... + headed probe frame（看到 v1.17 才是本轮；v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,8 +120,8 @@ index 0000000..914e991
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.16 标记           : $(grep -a -c 'v1.16' modules/netbox/netbox.irx 2>&1)"
-+            echo "build-tag v26 诊断行 : $(grep -a -c 'build-tag v26' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.17 标记           : $(grep -a -c 'v1.17' modules/netbox/netbox.irx 2>&1)"
++            echo "build-tag v27 诊断行 : $(grep -a -c 'build-tag v27' modules/netbox/netbox.irx 2>&1)"
 +            echo "factory-aligned 标记 : $(grep -a -c 'factory-aligned tx frame' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
@@ -132,7 +132,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v26)'   : $(grep -a -c 'resident (raw SMAP v26)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v27)'   : $(grep -a -c 'resident (raw SMAP v27)' opl.elf 2>&1)"
 +            echo
 +            echo "=== ★[v26 关键闸] 屏幕版本标记唯一 —— 末尾那个 \"(vNN)\" 不许再硬编码 ==="
 +            echo "起因：v23 的构建在 stage 6 屏幕上打出 \"(v18)\"、在 stage 11 打出 \"(v22)\"，"
@@ -141,9 +141,9 @@ index 0000000..914e991
 +            echo "--- 旧式硬编码后缀的条数，必须为 0 ---"
 +            echo "OPL.elf 里旧后缀 (v17)/(v18)/(v20)/(v21)/(v22) 合计: $(strings -a opl.elf 2>/dev/null | grep -c -E '\((v17|v18|v20|v21|v22)\)' )"
 +            echo "--- 新标记必须存在 ---"
-+            echo "OPL.elf: '(v26)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v26)')"
++            echo "OPL.elf: '(v27)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v27)')"
 +            echo "OPL.elf: 'NB_UITAG' 不该出现     : $(strings -a opl.elf 2>/dev/null | grep -c -F 'NB_UITAG')  （宏会被展开，非 0 说明写法有误）"
-+            echo "gui.c: '#define NB_UITAG \"(v26)\"' : $(grep -a -c '#define NB_UITAG "(v26)"' src/gui.c 2>&1)"
++            echo "gui.c: '#define NB_UITAG \"(v27)\"' : $(grep -a -c '#define NB_UITAG "(v27)"' src/gui.c 2>&1)"
 +            echo "（前两条：旧后缀=0、新标记>=28 才算过；上面任一条不满足就是屏幕又会撒谎）"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
@@ -228,7 +228,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v26)'      : $(grep -a -c 'resident (raw SMAP v26)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v27)'      : $(grep -a -c 'resident (raw SMAP v27)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
 +            echo
@@ -1937,7 +1937,21 @@ index 0000000..2b1fb29
 + */
 +static int nb_probe_tx(void)
 +{
-+    static const u8 probe[] = { NB_SYNC0, NB_SYNC1, NB_T_CMD, NB_C_R, 0xFF, 0x00 };
++    /* [v27] 这一帧必须带 HP 帧头，不能发裸记录。
++     *
++     * v26 及以前这里发的是裸的 6 字节 "55aa HR ff00" —— 没有 55aa HP 头，
++     * UDP 长度只有 14。capG 的同场 A/B 实测：原厂 6930 个请求帧里
++     * 【从来没有】这种无头帧（原厂最小的 UDP 长度是 26），只有我们发，
++     * 而且它是握手的第一步、排在所有正常帧之前。
++     *
++     * 两边其后 8 个握手帧是逐字节相同的（连 HP/HR/HW/HB 记录流和帧长 256
++     * 都一样，只有 HF 不同），却只有原厂能换来盒子的应答；HF 又已经被
++     * netbox_hf_ab.py 排除（取原厂真值 309 也一样零回应）。所以这个多
++     * 出来的无头帧是最后一个未被排除的差异 —— 先把它补成合法帧。 */
++    static const u8 probe[] = {
++        NB_SYNC0, NB_SYNC1, NB_T_CMD, NB_C_P, 0x00, 0x06,   /* 55aa HP 0006 */
++        NB_SYNC0, NB_SYNC1, NB_T_CMD, NB_C_R, 0xFF, 0x00    /* 55aa HR ff00 */
++    };
 +    int i;
 +
 +    for (i = 0; i < 20; i++) { /* 20 x 100ms = 2s */
@@ -2883,7 +2897,7 @@ index 0000000..2b1fb29
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.16 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.17 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC + headed probe frame)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -3044,7 +3058,7 @@ index 0000000..2b1fb29
 +     * 前面三关（钩子 / 链路 / 发送）只要有一关不过，帧本来就出不了网卡，
 +     * 早放也没有意义 —— 这里是"确定发得出去"之后的第一行。
 +     */
-+    nb_diag("netbox_bd v1.16 build-tag v26 (factory tx frame len + vendor-first dst MAC + unified screen tag)");
++    nb_diag("netbox_bd v1.17 build-tag v27 (factory tx frame len + vendor-first dst MAC + unified screen tag + headed probe frame)");
 +
 +    /*
 +     * 5) 开机握手（激活盒子）+ 探容量。
@@ -5041,7 +5055,7 @@ index 1054228..aac632e 100644
 + * 语义信息（哪一格、哪种病）由串里的措辞本身承载，不靠这个后缀 —— 所以
 + * 统一成同一个值不丢任何东西。
 + * ------------------------------------------------------------------ */
-+#define NB_UITAG "(v26)"
++#define NB_UITAG "(v27)"
 +
  static void guiShowBlockDeviceConfig(void)
  {
@@ -5102,7 +5116,7 @@ index 1054228..aac632e 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v26)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v27)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验 + 两格自环 + A/B
 +    //                                 监听 + stage12 链路/TX 体检），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
@@ -5483,7 +5497,7 @@ index 1054228..aac632e 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v26)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v27)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
