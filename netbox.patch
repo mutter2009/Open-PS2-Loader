@@ -101,7 +101,7 @@ index 0000000..914e991
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.17 ... + headed probe frame（看到 v1.17 才是本轮；v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.18 ... + headed probe frame + self-frame filter + 42s window（看到 v1.18 才是本轮；v1.17=v27 实机跑过一次（headed probe 仍 FAIL identify —— 根因是判据被自发帧污染），v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,8 +120,8 @@ index 0000000..914e991
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.17 标记           : $(grep -a -c 'v1.17' modules/netbox/netbox.irx 2>&1)"
-+            echo "build-tag v27 诊断行 : $(grep -a -c 'build-tag v27' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.18 标记           : $(grep -a -c 'v1.18' modules/netbox/netbox.irx 2>&1)"
++            echo "build-tag v28 诊断行 : $(grep -a -c 'build-tag v28' modules/netbox/netbox.irx 2>&1)"
 +            echo "factory-aligned 标记 : $(grep -a -c 'factory-aligned tx frame' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
@@ -132,7 +132,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v27)'   : $(grep -a -c 'resident (raw SMAP v27)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v28)'   : $(grep -a -c 'resident (raw SMAP v28)' opl.elf 2>&1)"
 +            echo
 +            echo "=== ★[v26 关键闸] 屏幕版本标记唯一 —— 末尾那个 \"(vNN)\" 不许再硬编码 ==="
 +            echo "起因：v23 的构建在 stage 6 屏幕上打出 \"(v18)\"、在 stage 11 打出 \"(v22)\"，"
@@ -141,9 +141,9 @@ index 0000000..914e991
 +            echo "--- 旧式硬编码后缀的条数，必须为 0 ---"
 +            echo "OPL.elf 里旧后缀 (v17)/(v18)/(v20)/(v21)/(v22) 合计: $(strings -a opl.elf 2>/dev/null | grep -c -E '\((v17|v18|v20|v21|v22)\)' )"
 +            echo "--- 新标记必须存在 ---"
-+            echo "OPL.elf: '(v27)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v27)')"
++            echo "OPL.elf: '(v28)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v28)')"
 +            echo "OPL.elf: 'NB_UITAG' 不该出现     : $(strings -a opl.elf 2>/dev/null | grep -c -F 'NB_UITAG')  （宏会被展开，非 0 说明写法有误）"
-+            echo "gui.c: '#define NB_UITAG \"(v27)\"' : $(grep -a -c '#define NB_UITAG "(v27)"' src/gui.c 2>&1)"
++            echo "gui.c: '#define NB_UITAG \"(v28)\"' : $(grep -a -c '#define NB_UITAG "(v28)"' src/gui.c 2>&1)"
 +            echo "（前两条：旧后缀=0、新标记>=28 才算过；上面任一条不满足就是屏幕又会撒谎）"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
@@ -228,7 +228,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v27)'      : $(grep -a -c 'resident (raw SMAP v27)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v28)'      : $(grep -a -c 'resident (raw SMAP v28)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
 +            echo
@@ -719,7 +719,7 @@ new file mode 100644
 index 0000000..2b1fb29
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2513 @@
+@@ -0,0 +1,2545 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -888,6 +888,8 @@ index 0000000..2b1fb29
 +static volatile int g_hook_calls = 0;
 +static volatile int g_rx_frames  = 0;
 +static volatile int g_rx_drop    = 0;
++/* [v28] 收到「我们自己发出去的帧」的次数 —— 见 netbox_raw_hook 的说明。 */
++static volatile int g_self_calls = 0;
 +
 +/*
 + * 发送失败计数（v13 新增）。
@@ -1018,6 +1020,28 @@ index 0000000..2b1fb29
 +
 +static void netbox_raw_hook(const unsigned char *frame, int len)
 +{
++    /* [v28] ★ 只把「不是我们自己发的」帧当成盒子应答 ★
++     *
++     * 起因是 capG 11:44 我们那一轮的实测：PS2 侧线上只有我们自己发的帧
++     * （71 帧源 MAC 全是 00:00:00:00:00:00），盒子侧 0 帧，可是诊断通道
++     * 打出来的是 hook=19 / ok=19 / wait=19 —— 说明我们【收回了自己发出去
++     * 的帧】19 次（EMAC3/MAL 侧的内部回环，不是回灌：抓包里没有重复帧）。
++     *
++     * 这 19 次会把 g_hook_calls 顶起来，于是 _start 里
++     *     if (g_hook_calls != 0) return nb_fail(NB_STAGE_IDENTIFY);
++     * 判定成「收到过帧但对不上」，屏幕上就永远是 FAIL identify；后面的
++     * 自环(stage 9) / PHY 自环(10) / 监听(11) / linkchk(12) 四级阶梯
++     * 一次都没跑过。前面几轮的诊断结论全被这一条带偏了。
++     *
++     * 判据用「源 MAC 全零」就够：实测（capB/capG 两次独立抓包）我们自己
++     * 发出去的帧源 MAC 恒为全零 —— nb_build_frame 不写源 MAC（见其注释），
++     * 盒子的回包源 MAC 是 08:00:27:7f:f6:27，不会被误滤。 */
++    if (len >= 12 &&
++        (frame[6] | frame[7] | frame[8] | frame[9] | frame[10] | frame[11]) == 0) {
++        g_self_calls++;
++        return;
++    }
++
 +    g_hook_calls++;
 +
 +    if (g_cap_on && g_cap_n < NB_CAP_MAX) {
@@ -2897,7 +2921,7 @@ index 0000000..2b1fb29
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.17 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC + headed probe frame)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.18 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC + headed probe frame + self-frame filter + 42s handshake window)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -3058,7 +3082,7 @@ index 0000000..2b1fb29
 +     * 前面三关（钩子 / 链路 / 发送）只要有一关不过，帧本来就出不了网卡，
 +     * 早放也没有意义 —— 这里是"确定发得出去"之后的第一行。
 +     */
-+    nb_diag("netbox_bd v1.17 build-tag v27 (factory tx frame len + vendor-first dst MAC + unified screen tag + headed probe frame)");
++    nb_diag("netbox_bd v1.18 build-tag v28 (factory tx frame len + vendor-first dst MAC + unified screen tag + headed probe frame + self-frame filter + 42s handshake window)");
 +
 +    /*
 +     * 5) 开机握手（激活盒子）+ 探容量。
@@ -3073,7 +3097,15 @@ index 0000000..2b1fb29
 +     *    盒子认不认标准广播。若盒子本来就接受广播，第 0 轮就成功，行为与之前
 +     *    【完全一致】；所以这个改动没有回退风险，最坏情况只是多等 3 轮。
 +     */
-+    for (try = 0; try < 6 && sectors == 0; try++) {
++    /* [v28] 窗口从 6 轮 ≈3.2 秒拉到 80 轮 ≈42 秒。
++     *
++     * 理由：capG 的原厂会话是【盒子先开口】—— 盒子在 PS2 首帧之前 5ms
++     * 就发了带 JF=306/307 的帧。最合理的解释是盒子只在它自己上电 / 链路
++     * 事件之后才进入服务态，之后一直静默。而我们从 wLaunchELF 起 OPL 时
++     * 盒子早就静默了，3.2 秒的窗口根本来不及「给盒子断电再上电」。
++     * 拉长到 42 秒后，用户可以在这个窗口内拔插盒子的电源/网线，
++     * 看盒子重上电那一瞬间会不会开口。 */
++    for (try = 0; try < 80 && sectors == 0; try++) {
 +        char msg[80];
 +
 +        nb_dstmac_idx = try & 3;
@@ -3218,9 +3250,9 @@ index 0000000..2b1fb29
 +
 +    {
 +        char msg[144];
-+        sprintf(msg, "selftest passed (%u sectors) link up (bmsr=0x%04x) hook=%d rx=%d drop=%d -> resident",
++        sprintf(msg, "selftest passed (%u sectors) link up (bmsr=0x%04x) hook=%d self=%d rx=%d drop=%d -> resident",
 +                (unsigned int)(sectors & 0xFFFFFFFF), (unsigned int)g_last_bmsr & 0xFFFF,
-+                g_hook_calls, g_rx_frames, g_rx_drop);
++                g_hook_calls, g_self_calls, g_rx_frames, g_rx_drop);
 +        nb_diag(msg);
 +    }
 +
@@ -5055,7 +5087,7 @@ index 1054228..aac632e 100644
 + * 语义信息（哪一格、哪种病）由串里的措辞本身承载，不靠这个后缀 —— 所以
 + * 统一成同一个值不丢任何东西。
 + * ------------------------------------------------------------------ */
-+#define NB_UITAG "(v27)"
++#define NB_UITAG "(v28)"
 +
  static void guiShowBlockDeviceConfig(void)
  {
@@ -5116,7 +5148,7 @@ index 1054228..aac632e 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v27)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v28)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验 + 两格自环 + A/B
 +    //                                 监听 + stage12 链路/TX 体检），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
@@ -5497,7 +5529,7 @@ index 1054228..aac632e 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v27)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v28)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
