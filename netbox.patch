@@ -719,7 +719,7 @@ new file mode 100644
 index 0000000..2b1fb29
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2499 @@
+@@ -0,0 +1,2513 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
