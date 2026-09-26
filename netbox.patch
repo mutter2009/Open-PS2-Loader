@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..914e991
 --- /dev/null
 +++ b/.github/workflows/opl-netbox.yml
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,256 @@
 +# [NETBOX] 云端编译 OPL + netbox 驱动
 +#
 +# 为什么要有这个 workflow：
@@ -101,7 +101,7 @@ index 0000000..914e991
 +            echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
 +            echo
 +            echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-+            echo "--- 版本串必须是 v1.19 ... + headed probe frame + self-frame filter + box-trigger + long-listen（看到 v1.19 才是本轮；v1.17=v27 实机跑过一次（headed probe 仍 FAIL identify —— 根因是判据被自发帧污染），v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
++            echo "--- 版本串必须是 v1.20 ... + headed probe frame + self-frame filter + fast-boot + lazy-connect（★v29 实机跑过：重链 + 长监听塞在 _start() 里 -> OPL 主页 10 分钟进不去，本版已废弃；看到 v1.20 才是本轮；v1.17=v27 实机跑过一次（headed probe 仍 FAIL identify —— 根因是判据被自发帧污染），v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
 +            strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
 +            echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
 +            echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -120,8 +120,11 @@ index 0000000..914e991
 +            echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
 +            echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-+            echo "v1.19 标记           : $(grep -a -c 'v1.19' modules/netbox/netbox.irx 2>&1)"
-+            echo "build-tag v29 诊断行 : $(grep -a -c 'build-tag v29' modules/netbox/netbox.irx 2>&1)"
++            echo "v1.20 标记           : $(grep -a -c 'v1.20' modules/netbox/netbox.irx 2>&1)"
++            echo "build-tag v30 诊断行 : $(grep -a -c 'build-tag v30' modules/netbox/netbox.irx 2>&1)"
++            echo "lazy-connect 标记   : $(grep -a -c 'lazy-connect' modules/netbox/netbox.irx 2>&1)"
++            echo "LAZY mode 串        : $(grep -a -c 'LAZY mode' modules/netbox/netbox.irx 2>&1)"
++            echo "lazy 诊断串         : $(grep -a -c 'lazy: ' modules/netbox/netbox.irx 2>&1)"
 +            echo "factory-aligned 标记 : $(grep -a -c 'factory-aligned tx frame' modules/netbox/netbox.irx 2>&1)"
 +            echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
 +            echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
@@ -132,7 +135,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
 +            echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v29)'   : $(grep -a -c 'resident (raw SMAP v29)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v30)'   : $(grep -a -c 'resident (raw SMAP v30)' opl.elf 2>&1)"
 +            echo
 +            echo "=== ★[v26 关键闸] 屏幕版本标记唯一 —— 末尾那个 \"(vNN)\" 不许再硬编码 ==="
 +            echo "起因：v23 的构建在 stage 6 屏幕上打出 \"(v18)\"、在 stage 11 打出 \"(v22)\"，"
@@ -141,9 +144,9 @@ index 0000000..914e991
 +            echo "--- 旧式硬编码后缀的条数，必须为 0 ---"
 +            echo "OPL.elf 里旧后缀 (v17)/(v18)/(v20)/(v21)/(v22) 合计: $(strings -a opl.elf 2>/dev/null | grep -c -E '\((v17|v18|v20|v21|v22)\)' )"
 +            echo "--- 新标记必须存在 ---"
-+            echo "OPL.elf: '(v29)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v29)')"
++            echo "OPL.elf: '(v30)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v30)')"
 +            echo "OPL.elf: 'NB_UITAG' 不该出现     : $(strings -a opl.elf 2>/dev/null | grep -c -F 'NB_UITAG')  （宏会被展开，非 0 说明写法有误）"
-+            echo "gui.c: '#define NB_UITAG \"(v29)\"' : $(grep -a -c '#define NB_UITAG "(v29)"' src/gui.c 2>&1)"
++            echo "gui.c: '#define NB_UITAG \"(v30)\"' : $(grep -a -c '#define NB_UITAG "(v30)"' src/gui.c 2>&1)"
 +            echo "（前两条：旧后缀=0、新标记>=28 才算过；上面任一条不满足就是屏幕又会撒谎）"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
 +            echo
@@ -228,7 +231,7 @@ index 0000000..914e991
 +            echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
 +            echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
-+            echo "OPL.elf: 'resident (raw SMAP v29)'      : $(grep -a -c 'resident (raw SMAP v29)' opl.elf 2>&1)"
++            echo "OPL.elf: 'resident (raw SMAP v30)'      : $(grep -a -c 'resident (raw SMAP v30)' opl.elf 2>&1)"
 +            echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
 +            echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
 +            echo
@@ -719,7 +722,7 @@ new file mode 100644
 index 0000000..2b1fb29
 --- /dev/null
 +++ b/modules/netbox/netbox_bd.c
-@@ -0,0 +1,2615 @@
+@@ -0,0 +1,2662 @@
 +/*
 + * netbox_bd.c - PS2 NetBox (NBD / ATA-over-UDP) 的 BDM 块设备驱动
 + *
@@ -894,6 +897,9 @@ index 0000000..2b1fb29
 + * 让诊断通道能显示「盒子到底开没开过门」。只读不改收包逻辑：SMAP 的接收模式
 + * 在 smap_init() 里已开 RX_BCAST/RX_MCAST，盒子的广播帧本来就能进 hook。 */
 +static volatile int g_box_frames = 0;
++/* [v30] 1 = 启动时没等到盒子开门 -> 惰性模式：设备先注册出去，
++ * 重链 + 长监听推迟到 OPL 第一次读盘（见 nb_lazy_connect）。 */
++static int g_lazy_pending = 0;
 +
 +/*
 + * 发送失败计数（v13 新增）。
@@ -1146,11 +1152,21 @@ index 0000000..2b1fb29
 +    {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, /* 3：标准广播（v1~v18 的老行为）    */
 +};
 +static int nb_dstmac_idx = 0;
-+/* [v29] 长监听参数：总轮数（分钟级）与每隔多少轮再制造一次 link flap。
-+ * 盒子服务窗约 26.5 秒，NB_V29_RETRIG 间隔必须 < 26.5 秒才能始终罩住窗口；
-+ * 且只在盒子连续沉默时才再 flap（见 _start），避免打断正在进行的会话。 */
-+#define NB_V29_TRIES   120
-+#define NB_V29_RETRIG  12
++/* [v30] ★ v29 的教训 ★：v29 把「flap 重链 + 120 轮长监听（≈5 分钟）」全塞在
++ * _start() 里，而 _start() 是在 OPL 的 bdmLoadBlockDeviceModules() 中被【同步】
++ * 调用的（那个函数一直持着 bdmLoadModuleLock），于是 OPL 主页 10 分钟都进不去。
++ * v30 重新分工：
++ *   _start()          —— 只跑 NB_V30_BOOT_ROUNDS 轮（秒级、不 flap）；拿不到盒子
++ *                        就注册设备走惰性模式并立刻返回，保证 OPL 秒进主页。
++ *   nb_lazy_connect() —— OPL 第一次读盘时才做「flap 逼开门 + 长监听」。
++ *                        盒子服务窗只有约 26.5 秒，所以每阶段前先 flap 一次。 */
++#define NB_V30_BOOT_ROUNDS   6    /* 启动尝试轮数（≈10 秒上限）*/
++#define NB_V30_LAZY_PHASE1   10   /* 惰性阶段1：flap 后听 10 轮 */
++#define NB_V30_LAZY_PHASE2   10   /* 惰性阶段2：再 flap 后再听 10 轮 */
++/* 没拿到盒子时先报给 OPL 的占位容量（128 GB / 512B 扇区）。
++ * 只影响菜单显示的大小，读盘正确性不受影响；nb_lazy_connect() 拿到真
++ * IDENTIFY 后会把它改成真实容量。 */
++#define NB_V30_LAZY_SECTORS  0x10000000u
 +
 +/* IPv4 头校验和（头内校验和字段需先置 0） */
 +static u16 nb_ip_cksum(const u8 *p, int n)
@@ -2856,6 +2872,10 @@ index 0000000..2b1fb29
 +/* struct block_device 回调                                            */
 +/* ------------------------------------------------------------------ */
 +
++/* [v30] 惰性接盒子：定义在本文件后半（nb_box_trigger 之后、_start 之前），
++ * netbox_read 要用它，所以先前置声明。 */
++static void nb_lazy_connect(void);
++
 +static int netbox_read(struct block_device *bd, u64 sector, void *buffer, u16 count)
 +{
 +    u8 *p = (u8 *)buffer;
@@ -2863,6 +2883,14 @@ index 0000000..2b1fb29
 +    static int nreads = 0;
 +    static int nfails = 0;
 +    (void)bd;
++
++    /* [v30] ★ 惰性接盒子 ★ 第一次读盘时才做「flap 逼开门 + 长监听」。
++     * _start() 里绝不做 —— 那会把 OPL 主页卡死（v29 实测 >10 分钟进不去）。
++     * 想抓盒子开门：在 OPL 打开游戏列表之后的 ~20 秒内拔插一次盒子电源。 */
++    if (g_lazy_pending) {
++        g_lazy_pending = 0;
++        nb_lazy_connect();
++    }
 +
 +    /* 能进这里说明 OPL 已经在尝试挂载并读盘了 */
 +    if (nreads == 0) {
@@ -2964,6 +2992,82 @@ index 0000000..2b1fb29
 +    }
 +}
 +
++/* [v30] 惰性接盒子用的「一轮」：发一次握手 + 等 100ms + 取一次 IDENTIFY。
++ * 成功返回真实扇区数，失败返回 0。 */
++static u64 nb_lazy_rounds(int rounds, const char *tag)
++{
++    int k;
++    char msg[96];
++
++    for (k = 0; k < rounds; k++) {
++        u64 s;
++
++        nb_dstmac_idx = k & 3;
++        sprintf(msg, "lazy %s round %d/%d dstmac_xx=%02x (hook=%d box=%d)",
++                tag, k + 1, rounds, nb_dstmac_tab[nb_dstmac_idx][3],
++                g_hook_calls, g_box_frames);
++        nb_diag(msg);
++
++        nb_handshake();
++        DelayThread(100 * 1000); /* 100ms，等盒子应答 */
++        s = nb_identify_sectors();
++        if (s != 0)
++            return s;
++    }
++    return 0;
++}
++
++/* [v30] ★ 惰性接盒子 ★
++ *
++ * 为什么必须挪到这里：netbox.irx 是在 OPL 的 bdmLoadBlockDeviceModules() 里被
++ * SifExecModuleBuffer() 【同步】加载的，那个函数直到 _start() 返回才放掉
++ * bdmLoadModuleLock；而 OPL 主页/菜单在启动阶段要拿这把锁。v29 把「重链 +
++ * 120 轮长监听（≈5 分钟）」塞在 _start() 里，实机结果就是 OPL 主页 10 分钟
++ * 都进不去（一直停在启动画面）。
++ *
++ * v30 的分工：
++ *   _start()  —— 只做秒级启动尝试；拿不到盒子就注册设备 + 置 g_lazy_pending，
++ *                立刻 return MODULE_RESIDENT_END（模块驻留，主页照进）。
++ *   本函数    —— OPL 第一次读这块盘时被 netbox_read() 调起。这时 OPL 正在挂载
++ *                mass0:，等一下不会卡主页，而且恰好对应原厂「打开浏览器才去连
++ *                盒子」的时序。
++ *
++ * 两个阶段，每阶段前先制造一次真实 link flap（nb_box_trigger）：盒子只在自身
++ * 链路 flap 之后才开门，服务窗约 26.5 秒 —— 必须「flap 一次，然后马上在这个
++ * 窗口里发请求」。两阶段 = 两次窗口机会。
++ * 拿到 IDENTIFY 就把真实容量写回 g_netbox_bd.sectorCount，后续读盘就正常了。 */
++static void nb_lazy_connect(void)
++{
++    u64 sectors;
++    char msg[160];
++
++    nb_diag("lazy: first read -> flap then listen (phase1)");
++
++    nb_box_trigger();
++    sectors = nb_lazy_rounds(NB_V30_LAZY_PHASE1, "p1");
++    if (sectors == 0) {
++        nb_diag("lazy: phase1 no reply -> re-flap (phase2)");
++        nb_box_trigger();
++        sectors = nb_lazy_rounds(NB_V30_LAZY_PHASE2, "p2");
++    }
++
++    if (sectors != 0) {
++        g_netbox_bd.sectorCount = sectors;
++        sprintf(msg, "lazy: BOX ANSWERED! %u sectors (%u GB) box=%d -> device ready",
++                (unsigned int)(sectors & 0xFFFFFFFF),
++                (unsigned int)(sectors >> 21), g_box_frames);
++        nb_diag(msg);
++        printf("netbox: lazy connect OK, %u sectors\n",
++               (unsigned int)(sectors & 0xFFFFFFFF));
++    } else {
++        sprintf(msg, "lazy: box still silent after 2 flaps + %d rounds "
++                     "(hook=%d box=%d) -> reads will fail",
++                NB_V30_LAZY_PHASE1 + NB_V30_LAZY_PHASE2, g_hook_calls, g_box_frames);
++        nb_diag(msg);
++        printf("netbox: lazy connect FAILED (box never answered)\n");
++    }
++}
++
 +int _start(int argc, char *argv[])
 +{
 +    iop_sema_t sema;
@@ -2972,7 +3076,7 @@ index 0000000..2b1fb29
 +    int mac_ok, try, r;
 +    (void)argc; (void)argv;
 +
-+    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.19 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC + headed probe frame + self-frame filter + box-trigger + long-listen)\n");
++    printf("netbox_bd: PS2 NetBox (NBD/ATA-over-UDP) BDM driver v1.20 (raw SMAP + dst-MAC ladder + PHY loopback + A/B listen + linkchk + unified screen tag + factory-aligned tx frame + factory tx frame length + vendor-first dst MAC + headed probe frame + self-frame filter + fast-boot + lazy-connect)\n");
 +
 +    sema.initial = 1;
 +    sema.max     = 1;
@@ -3133,7 +3237,7 @@ index 0000000..2b1fb29
 +     * 前面三关（钩子 / 链路 / 发送）只要有一关不过，帧本来就出不了网卡，
 +     * 早放也没有意义 —— 这里是"确定发得出去"之后的第一行。
 +     */
-+    nb_diag("netbox_bd v1.19 build-tag v29 (factory tx frame len + vendor-first dst MAC + unified screen tag + headed probe frame + self-frame filter + box-trigger + long-listen)");
++    nb_diag("netbox_bd v1.20 build-tag v30 (factory tx frame len + vendor-first dst MAC + unified screen tag + headed probe frame + self-frame filter + fast-boot + lazy-connect)");
 +
 +    /*
 +     * 5) 开机握手（激活盒子）+ 探容量。
@@ -3148,117 +3252,63 @@ index 0000000..2b1fb29
 +     *    盒子认不认标准广播。若盒子本来就接受广播，第 0 轮就成功，行为与之前
 +     *    【完全一致】；所以这个改动没有回退风险，最坏情况只是多等 3 轮。
 +     */
-+    /* [v29] ★ 盒子只在【自身链路 flap（断电重上 / 对端重链）】之后才进入约 26.5
-+     * 秒的服务窗 —— capG 实测盒子洪水 13859 帧 / 523 帧每秒 / 26.5 秒后休眠；
-+     * capH 实测我们发 906 握手帧、盒子 0 回应。结论：握手/IDENTIFY 请求本身盒子
-+     * 【不主动响应】，但【在服务窗内响应请求】。原厂 OPL「开浏览器随时能连」就是
-+     * 因为每次开浏览器驱动重链 SMAP（link flap）→ 盒子开门。
-+     * 修复 = 制造 link flap 逼开门 + 在窗内持续发请求 + 分钟级长监听：
-+     *   - 进循环前先 nb_box_trigger() 制造一次 flap；
-+     *   - 每 NB_V29_RETRIG 轮、且盒子连续沉默时再 flap 一次（覆盖「盒子已睡」）；
-+     *   - 轮数拉到 NB_V29_TRIES（分钟级），期间持续发 IDENTIFY 并轮询；
-+     *   - 用户任何时刻拔插盒子电源（盒子侧 flap）也会被活着的驱动接住。
-+     * nb_box_trigger() 用 smap_phy_loopback_set(1)->(0)+smap_phy_reinit 制造真实
-+     * link down->up（v20/v21 自环自检已安全用过同样的 API）。 */
-+    nb_box_trigger();
-+    {
-+        static int prev_box = 0;
-+        prev_box = g_box_frames;
-+        for (try = 0; try < NB_V29_TRIES && sectors == 0; try++) {
-+            char msg[80];
++    /* [v30] ★ 启动只做「秒级」尝试，绝不再长等 ★
++     *
++     * v29 在这里做「启动 1 次 + 每 12 轮 1 次」共最多 10 次 PHY flap
++     * （每次最坏 ≈10.8 秒：loopback 一开链路就掉，smap_phy_reinit 走完自协商
++     * 超时 6 秒 + 手动 100M/10M 回退 4.4 秒）再加 120 轮 IDENTIFY（每轮 ≈1.6 秒），
++     * 合计 5 分钟以上 —— 而本函数是在 OPL 的 bdmLoadBlockDeviceModules() 里
++     * 【同步】调用的，那个函数在返回前一直持着 bdmLoadModuleLock，OPL 主页要等它。
++     * 实机结果：开机 10 分钟还停在启动画面。
++     *
++     * v30：这里只跑 NB_V30_BOOT_ROUNDS 轮（≈10 秒上限），且【不做任何 flap】。
++     * 拿不到盒子就把设备先注册出去、走「惰性模式」立刻返回（见下面 sectors==0），
++     * 重链 + 长监听全部挪到第一次读盘时的 nb_lazy_connect()。 */
++    for (try = 0; try < NB_V30_BOOT_ROUNDS && sectors == 0; try++) {
++        char msg[80];
 +
-+            if ((try % NB_V29_RETRIG) == 0 && try != 0) {
-+                if (g_box_frames == prev_box) {
-+                    nb_box_trigger();
-+                    sprintf(msg, "box silent, re-trigger #%d (box=%d)",
-+                            try / NB_V29_RETRIG, g_box_frames);
-+                    nb_diag(msg);
-+                }
-+                prev_box = g_box_frames;
-+            }
++        nb_dstmac_idx = try & 3;
++        sprintf(msg, "boot round %d/%d dstmac_xx=%02x (hook=%d box=%d)",
++                try + 1, NB_V30_BOOT_ROUNDS, nb_dstmac_tab[nb_dstmac_idx][3],
++                g_hook_calls, g_box_frames);
++        nb_diag(msg);
 +
-+            nb_dstmac_idx = try & 3;
-+            sprintf(msg, "handshake round %d dstmac_xx=%02x (hook=%d box=%d)",
-+                    try + 1, nb_dstmac_tab[nb_dstmac_idx][3], g_hook_calls, g_box_frames);
-+            nb_diag(msg);
-+
-+            nb_handshake();
-+            DelayThread(100 * 1000); /* 100ms，等盒子应答 */
-+            sectors = nb_identify_sectors();
-+        }
++        nb_handshake();
++        DelayThread(100 * 1000); /* 100ms，等盒子应答 */
++        sectors = nb_identify_sectors();
 +    }
 +
-+    /*
-+     * 失败要分清三种完全不同的情况。它们的修法各不相同，v12 之前在屏幕上
-+     * 却都一样是沉默：
-+     *   (i)  一个回包都没有（hook==0）—— 最麻烦的一种，见下面 v19 的处理
-+     *   (ii) 收到过帧但对不上（hook!=0）—— 协议层问题（事务号/数据偏移）
-+     */
++    /* [v30] ★ 启动时拿不到盒子 -> 惰性模式（不再 nb_fail 卡屏/不驻留）★
++     *
++     * v12~v29 走到这里就 return nb_fail(...)：模块不驻留、不注册设备，
++     * OPL 主页没有 netbox、游戏列表也是空的。可盒子本来就只在自身链路 flap
++     * 之后才开门（capG/capH 实测），开机那十几秒常常根本不在服务窗里 ——
++     * 于是这个失败几乎必然发生，用户看到的就是「永远没有游戏目录」。
++     *
++     * v30 换一种做法：把设备【先注册出去】（容量用 NB_V30_LAZY_SECTORS 占位），
++     * 模块正常驻留、_start() 立刻返回 —— OPL 该进主页进主页，设置页能看到
++     * netbox 设备。真正「flap 逼开门 + 长监听」推迟到 OPL 第一次读这块盘的时刻，
++     * 见 nb_lazy_connect()。要抓盒子开门，就在 OPL 打开游戏列表之后的前
++     * 约 20 秒内拔插一次盒子电源（盒子侧 link flap = 盒子开门）。
++     *
++     * 注意：这里【不跑】v19~v23 那套自环/监听/linkchk 四格阶梯 —— 那套读数是
++     * 给 nb_fail() 上屏用的，v30 不再让 _start 失败，跑了也没地方上屏。
++     * 需要那组读数时走「转发桥 + UDP 40001 诊断通道」。 */
 +    if (sectors == 0) {
-+        if (g_hook_calls != 0)
-+            return nb_fail(NB_STAGE_IDENTIFY);
++        char msg[176];
 +
-+        /*
-+         * [v19] (i) 盒子一个回包都没有：在报出去【之前】先跑一次自环自检，
-+         * 把剩下两种可能分开 —— 这是本轮唯一新增的判据：
-+         *   PS2 自己发一帧、再自己收回来的内部自环（不经 PHY/网线/盒子）。
-+         *     收到 -> PS2 侧数字逻辑全好 -> 病在 PS2 之外（盒子/线/PHY 收方向）
-+         *     没有 -> PS2 自己就收不了 -> 病在 MAC/MAL/BD/中断
-+         * 自环的读数随后由 nb_fail(NB_STAGE_LOOPBACK) 打包上屏。
-+         * 注意只在 hook==0 时跑：收到过帧的情况跑它会把这几个计数器搅乱。
-+         */
-+        {
-+            char msg[128];
++        sprintf(msg, "boot: box silent after %d rounds (hook=%d box=%d) -> LAZY mode "
++                     "(device registered now, flap+listen on first read)",
++                NB_V30_BOOT_ROUNDS, g_hook_calls, g_box_frames);
++        nb_diag(msg);
++        printf("netbox: LAZY mode, box not up yet (retry on first read)\n");
 +
-+            sprintf(msg, "no reply: 6 rounds x 4 dst MAC candidates tried (hook=%d) -> loopback selftest",
-+                    g_hook_calls);
-+            nb_diag(msg);
-+        }
++        g_netbox_bd.sectorCount = NB_V30_LAZY_SECTORS;
++        g_lazy_pending = 1;
++        bdm_connect_bd(&g_netbox_bd);
++        nb_diag("bdm_connect_bd() done -> resident (LAZY, box not connected yet)");
 +
-+        nb_loopback_selftest();
-+
-+        /*
-+         * [v21] 从这里起变成三级阶梯，每往下一级都要求上一级已经通过 ——
-+         * 这样屏幕上那个数字对应的实验是唯一的，不会歧义。
-+         *
-+         *   格 1（stage 9）：EMAC3 内自环。连自己的回环帧都收不到 =>
-+         *        PS2 自己有病，范围已经缩到 MAC 收方向 / MAL / BD / 中断。
-+         *   格 2（stage 10）：内自环通了、PHY 自环不通 =>
-+         *        PS2 数字通路全好，病在 MII 接口或 PHY 数字部分。这一类可修。
-+         *   格 3（stage 11）：两格自环都通 => PS2 侧从造帧到钩子（含 PHY 的
-+         *        MII 段）全部验证完毕，病只能在网线 / 对端盒子。这时再纯听
-+         *        400ms 区分"对端不认我们的帧"与"线上根本没东西"。
-+         *
-+         * 每一格的读数都留在 g_rxd[] 里，nb_fail() 直接打包，所以屏幕上
-+         * 那几个数永远属于该格自己的实验。
-+         */
-+        if (g_rxd[9] == 0 && g_rxd[0] == 0)
-+            return nb_fail(NB_STAGE_LOOPBACK);
-+
-+        nb_phy_loopback_selftest();
-+
-+        if (g_phy_lp_rx == 0)
-+            return nb_fail(NB_STAGE_PHYLPBK);
-+
-+        nb_listen_probe(400, 400);
-+
-+        /*
-+         * [v23] SILENT（两窗口都 0 帧）不再无条件判"线/盒子坏了"——
-+         * 2026-09-23 真值抓包（NETBOX_REFERENCE_FRAMES.md §2）证明盒子是静默
-+         * 监听型，单独接 PC 一个包都不发；但"我们发了探测它却不回"仍然可能
-+         * 是真故障。所以 SILENT 时先跑 stage 12 链路/TX 体检来定位真因：
-+         *   - 发现 lp_stuck / txq / 无 link / 无 PHY => 报 LINKCHK（真因在我们这边）
-+         *   - 链路 + TX 全好却仍 SILENT           => 报 LISTEN（线/盒子真不在）
-+         * 不是 SILENT（收到了回包或无主流量）=> 线 + TX 显然活着，再跑一次
-+         * linkchk 确认 TX 残留为 0，干净则落到成功路径（resident）。
-+         */
-+        if (g_listen_silent) {
-+            if (nb_linkchk() != 0)
-+                return nb_fail(NB_STAGE_LINKCHK);
-+            return nb_fail(NB_STAGE_LISTEN);
-+        }
-+        if (nb_linkchk() != 0)
-+            return nb_fail(NB_STAGE_LINKCHK);
++        return MODULE_RESIDENT_END;
 +    }
 +
 +    {
@@ -5157,7 +5207,7 @@ index 1054228..aac632e 100644
 + * 语义信息（哪一格、哪种病）由串里的措辞本身承载，不靠这个后缀 —— 所以
 + * 统一成同一个值不丢任何东西。
 + * ------------------------------------------------------------------ */
-+#define NB_UITAG "(v29)"
++#define NB_UITAG "(v30)"
 +
  static void guiShowBlockDeviceConfig(void)
  {
@@ -5218,7 +5268,7 @@ index 1054228..aac632e 100644
 +    //                                   看到它说明【链路是好的】，问题在后面
 +    //                                   某一步（协议/扇区/文件系统），
 +    //                                   与网线、PHY 都无关了。
-+    //   resident (raw SMAP v29)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
++    //   resident (raw SMAP v30)    -> 自检全过（钩子自检 + PHY 身份 + 补跑 PHY 初始化
 +    //                                 + 链路 + 真读 LBA0 + 55AA 校验 + 两格自环 + A/B
 +    //                                 监听 + stage12 链路/TX 体检），BD 设备已注册，
 +    //                                 mass0: 应该能挂上。
@@ -5599,7 +5649,7 @@ index 1054228..aac632e 100644
 +            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, driver START FAILED (ret=%d)",
 +                     gNetBoxLoadID, gNetBoxStartRC);
 +        else
-+            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v29)", gNetBoxLoadID);
++            snprintf(netboxStatus, sizeof(netboxStatus), "NetBox: ON, id=%d, resident (raw SMAP v30)", gNetBoxLoadID);
 +        diaSetLabel(diaBlockDevicesConfig, CFG_NETBOX_STATUS, netboxStatus);
 +    }
 +
