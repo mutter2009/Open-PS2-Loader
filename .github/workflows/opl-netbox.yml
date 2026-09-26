@@ -95,7 +95,7 @@ jobs:
             echo "hook selftest 串    : $(grep -a -c 'rx hook self-check FAILED' modules/netbox/netbox.irx 2>&1)"
             echo
             echo "=== [v17 关键证据] 「把 PHY 初始化补跑一遍」有没有真的编进二进制 ==="
-            echo "--- 版本串必须是 v1.19 ... + headed probe frame + self-frame filter + box-trigger + long-listen（看到 v1.19 才是本轮；v1.17=v27 实机跑过一次（headed probe 仍 FAIL identify —— 根因是判据被自发帧污染），v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
+            echo "--- 版本串必须是 v1.20 ... + headed probe frame + self-frame filter + fast-boot + lazy-connect（★v29 实机跑过：重链 + 长监听塞在 _start() 里 -> OPL 主页 10 分钟进不去，本版已废弃；看到 v1.20 才是本轮；v1.17=v27 实机跑过一次（headed probe 仍 FAIL identify —— 根因是判据被自发帧污染），v1.16=v26 实机跑过一次（前 8 帧与原厂逐字节相同仍零回应；多发的无 HP 头 probe 帧是唯一残留差异），v1.15=v25 未上机（屏幕宏名泄漏），v1.14=v24 实机跑过一次（帧长/dst MAC 表序未对齐），v1.13=v23，v1.12=v22，v1.11=v21，v1.10=v20，v1.9=v19 空转那一轮（stage 9 被夹成 0））---"
             strings -a modules/netbox/netbox.irx 2>/dev/null | grep -i 'netbox_bd: PS2 NetBox' | head -3
             echo "--- v17 第 8 个导出 smap_phy_reinit / v19 第 9 个导出 smap_loopback_set（查【未 strip 的 ELF】）---"
             echo "smap ELF   smap_phy_reinit    : $(grep -a -c 'smap_phy_reinit'    modules/network/smap-ingame/smap.notiopmod.elf 2>&1)"
@@ -114,8 +114,11 @@ jobs:
             echo "phy identify 诊断串 : $(grep -a -c 'phy identify code=' modules/netbox/netbox.irx 2>&1)"
             echo "link ok 诊断串      : $(grep -a -c 'link ok: code=' modules/netbox/netbox.irx 2>&1)"
             echo "FAIL stage= 出现次数: $(grep -a -c 'FAIL stage=' modules/netbox/netbox.irx 2>&1)"
-            echo "v1.19 标记           : $(grep -a -c 'v1.19' modules/netbox/netbox.irx 2>&1)"
-            echo "build-tag v29 诊断行 : $(grep -a -c 'build-tag v29' modules/netbox/netbox.irx 2>&1)"
+            echo "v1.20 标记           : $(grep -a -c 'v1.20' modules/netbox/netbox.irx 2>&1)"
+            echo "build-tag v30 诊断行 : $(grep -a -c 'build-tag v30' modules/netbox/netbox.irx 2>&1)"
+            echo "lazy-connect 标记   : $(grep -a -c 'lazy-connect' modules/netbox/netbox.irx 2>&1)"
+            echo "LAZY mode 串        : $(grep -a -c 'LAZY mode' modules/netbox/netbox.irx 2>&1)"
+            echo "lazy 诊断串         : $(grep -a -c 'lazy: ' modules/netbox/netbox.irx 2>&1)"
             echo "factory-aligned 标记 : $(grep -a -c 'factory-aligned tx frame' modules/netbox/netbox.irx 2>&1)"
             echo "dst-MAC ladder      : $(grep -a -c 'dst-MAC ladder' modules/netbox/netbox.irx 2>&1)"
             echo "PHY loopback   : $(grep -a -c 'PHY loopback' modules/netbox/netbox.irx 2>&1)"
@@ -126,7 +129,7 @@ jobs:
             echo "OPL.elf: 'PHY ok(non-DP83846)'       : $(grep -a -c 'PHY ok(non-DP83846)' opl.elf 2>&1)"
             echo "OPL.elf: 'PHY reset stuck'           : $(grep -a -c 'PHY reset stuck' opl.elf 2>&1)"
             echo "OPL.elf: 'link ok lm='               : $(grep -a -c 'link ok lm=' opl.elf 2>&1)"
-            echo "OPL.elf: 'resident (raw SMAP v29)'   : $(grep -a -c 'resident (raw SMAP v29)' opl.elf 2>&1)"
+            echo "OPL.elf: 'resident (raw SMAP v30)'   : $(grep -a -c 'resident (raw SMAP v30)' opl.elf 2>&1)"
             echo
             echo "=== ★[v26 关键闸] 屏幕版本标记唯一 —— 末尾那个 \"(vNN)\" 不许再硬编码 ==="
             echo "起因：v23 的构建在 stage 6 屏幕上打出 \"(v18)\"、在 stage 11 打出 \"(v22)\"，"
@@ -135,9 +138,9 @@ jobs:
             echo "--- 旧式硬编码后缀的条数，必须为 0 ---"
             echo "OPL.elf 里旧后缀 (v17)/(v18)/(v20)/(v21)/(v22) 合计: $(strings -a opl.elf 2>/dev/null | grep -c -E '\((v17|v18|v20|v21|v22)\)' )"
             echo "--- 新标记必须存在 ---"
-            echo "OPL.elf: '(v29)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v29)')"
+            echo "OPL.elf: '(v30)' 出现次数        : $(strings -a opl.elf 2>/dev/null | grep -c -F '(v30)')"
             echo "OPL.elf: 'NB_UITAG' 不该出现     : $(strings -a opl.elf 2>/dev/null | grep -c -F 'NB_UITAG')  （宏会被展开，非 0 说明写法有误）"
-            echo "gui.c: '#define NB_UITAG \"(v29)\"' : $(grep -a -c '#define NB_UITAG "(v29)"' src/gui.c 2>&1)"
+            echo "gui.c: '#define NB_UITAG \"(v30)\"' : $(grep -a -c '#define NB_UITAG "(v30)"' src/gui.c 2>&1)"
             echo "（前两条：旧后缀=0、新标记>=28 才算过；上面任一条不满足就是屏幕又会撒谎）"
             echo "（每条都应 >=1；为 0 说明 gui.c 的解码分支没编进去）"
             echo
@@ -222,7 +225,7 @@ jobs:
             echo "OPL.elf: 'LINKCHK: PHY STUCK LOOPBACK' : $(grep -a -c 'LINKCHK: PHY STUCK LOOPBACK' opl.elf 2>&1)"
             echo "OPL.elf: 'LINKCHK: TX STUCK txq='      : $(grep -a -c 'LINKCHK: TX STUCK txq=' opl.elf 2>&1)"
             echo "OPL.elf: 'LINKCHK: NO LINK aneg='      : $(grep -a -c 'LINKCHK: NO LINK aneg=' opl.elf 2>&1)"
-            echo "OPL.elf: 'resident (raw SMAP v29)'      : $(grep -a -c 'resident (raw SMAP v29)' opl.elf 2>&1)"
+            echo "OPL.elf: 'resident (raw SMAP v30)'      : $(grep -a -c 'resident (raw SMAP v30)' opl.elf 2>&1)"
             echo "OPL.elf: 'RX SILENT; PS2 link+TX clean' : $(grep -a -c 'RX SILENT; PS2 link+TX clean' opl.elf 2>&1)"
             echo "（每条都应 >=1；为 0 说明 gui.c 的 stage 12 分支没编进去）"
             echo
